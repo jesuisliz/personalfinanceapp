@@ -185,11 +185,11 @@ Success criteria (from `PROJECT_CONTEXT.md`'s Definition of Success):
 - No bank integrations / Plaid.
 - No cloud deployment or hosting.
 - No multi-user support or auth.
-- No git/version control setup yet (deferred by user, revisit later).
+- No remote git hosting (GitHub etc.) — local commits only, by the user's explicit choice; revisit if they want one later.
 - No LLM-driven arithmetic — categorization suggestions and chat explanations only.
 
 ## 8. Open Questions / Revisit Later
 
 - ~~Exact file/folder layout for backend~~ — resolved: `app/imports/`, `app/categories/`, `app/transfers/`, `app/dashboard/`, `app/chat/`, `app/routers/`, one business-logic module per domain area, routers stay thin.
 - ~~Whether account config lives as YAML or JSON~~ — resolved: YAML (`app/imports/accounts.yaml`).
-- Git initialization and `.gitignore` scope (`data/`, `*.db`, `.env`) — still deferred until user asks; still not a git repository as of 2026-07-27.
+- ~~Git initialization and `.gitignore` scope~~ — resolved 2026-07-27: local-only git repo initialized, root `.gitignore` excludes `data/` (real bank CSVs), `backend/*.db`, `backend/.env`, `backend/venv/`, `__pycache__/`, `.pytest_cache/`, and `.claude/settings.local.json`, per `docs/PROJECT_CONTEXT.md`'s Privacy section. First commit covers Phases 1-5.
