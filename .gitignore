@@ -17,6 +17,9 @@ frontend/dist/
 # Claude Code local settings (machine-specific permission history, not shared config)
 .claude/settings.local.json
 
+# Daily process-check run log (machine-specific, not shared)
+.claude/logs/
+
 # OS
 .DS_Store
 Thumbs.db
