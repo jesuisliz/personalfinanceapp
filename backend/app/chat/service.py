@@ -16,9 +16,32 @@ BASE_SYSTEM_PROMPT = (
     "You are a financial assistant for a personal finance app. You have tools that query "
     "the user's real transaction data. Never sum, average, estimate, or otherwise calculate "
     "a financial total yourself -- always call a tool for any numeric aggregation. You may "
-    "describe or compare numbers a tool has already returned. All amounts from tools are in "
-    "cents; convert to dollars when describing them. Be concise and direct."
+    "describe or compare numbers a tool has already returned. Every dollar amount a tool "
+    "returns is already in dollars -- read it as-is, never rescale or reinterpret it. Be "
+    "concise and direct."
 )
+
+
+def _cents_to_dollars(value):
+    """Recursively rewrite every '*_cents' key/value as a '*_dollars' float.
+
+    The model is unreliable at mentally rescaling raw cents integers (confirmed live: it
+    correctly converted some entries but printed others as if cents were dollars, a 100x
+    error). Rather than depend on prompt-followed arithmetic, dollars are the only unit the
+    model ever sees. The frontend's own tool-call rendering is unaffected -- it reads the
+    original cents-based ToolCallOut.result, not this converted copy.
+    """
+    if isinstance(value, dict):
+        converted = {}
+        for key, val in value.items():
+            if key.endswith("_cents") and isinstance(val, (int, float)):
+                converted[key[: -len("_cents")] + "_dollars"] = round(val / 100, 2)
+            else:
+                converted[key] = _cents_to_dollars(val)
+        return converted
+    if isinstance(value, list):
+        return [_cents_to_dollars(v) for v in value]
+    return value
 
 
 def _system_prompt(session: Session) -> str:
@@ -83,7 +106,9 @@ def answer_question(
                 result = {"error": str(exc)}
 
             tool_calls_made.append(ToolCallOut(name=tc.function.name, arguments=arguments, result=result))
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
+            messages.append(
+                {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(_cents_to_dollars(result))}
+            )
 
     return ChatReplyOut(
         reply=(

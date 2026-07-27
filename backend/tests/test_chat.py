@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.chat.service import answer_question
+from app.chat.service import _cents_to_dollars, answer_question
 from app.chat.tools import build_tool_schemas, dispatch_tool_call, resolve_category_id
 from app.db import Base
 from app.models import Account, Category, CurrentBalance, SavingsGoal, Transaction
@@ -325,3 +325,31 @@ def test_answer_question_respects_max_tool_rounds():
     result = answer_question(session, "loop forever", history=[], client=client)
 
     assert "allowed number of steps" in result.reply
+
+
+def test_cents_to_dollars_converts_nested_structure():
+    # Regression test: a live question ("which categories increased") had the model
+    # correctly convert some entries but print others as raw cents ("$85,824" instead of
+    # $858.24) -- a 100x error. Tool results are now converted before the model ever sees
+    # them, so there is nothing left for the model to get wrong.
+    raw = {
+        "2026-02": [{"category_id": 1, "category_name": "Dining & Drinks", "total_cents": 57740}],
+        "2026-07": [{"category_id": 1, "category_name": "Dining & Drinks", "total_cents": 85824}],
+    }
+
+    converted = _cents_to_dollars(raw)
+
+    assert converted == {
+        "2026-02": [{"category_id": 1, "category_name": "Dining & Drinks", "total_dollars": 577.40}],
+        "2026-07": [{"category_id": 1, "category_name": "Dining & Drinks", "total_dollars": 858.24}],
+    }
+
+
+def test_cents_to_dollars_leaves_non_cents_fields_alone():
+    raw = {"category_id": 1, "amount_cents": -1050, "nested": {"months_considered": 6}}
+
+    assert _cents_to_dollars(raw) == {
+        "category_id": 1,
+        "amount_dollars": -10.50,
+        "nested": {"months_considered": 6},
+    }
