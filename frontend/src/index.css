@@ -1,1 +1,46 @@
 @import "tailwindcss";
+
+/* Dark-mode-only palette, adapted from the dataviz reference palette's
+   validated dark steps (references/palette.md) — canvas/surface/ink/hairline
+   plus the categorical blue/orange pair and good/critical status colors are
+   the pre-validated dark hexes, unchanged. --color-accent is UI chrome only
+   (buttons, active tab, focus, links, progress fills) — never plotted as a
+   data series, so it isn't held to the categorical CVD-separation gate. */
+@theme {
+  --color-canvas: #0d0d0d;
+  --color-surface: #1a1a19;
+  --color-surface-2: #232320;
+  --color-hairline: rgba(255, 255, 255, 0.1);
+  --color-hairline-strong: rgba(255, 255, 255, 0.18);
+
+  --color-ink: #ffffff;
+  --color-ink-secondary: #c3c2b7;
+  --color-ink-muted: #898781;
+
+  --color-accent: #9085e9;
+  --color-accent-strong: #aba2f0;
+  --color-accent-soft: #9085e924;
+
+  --color-income: #3987e5;
+  --color-expense: #d95926;
+  --color-good: #0ca30c;
+  --color-critical: #d03b3b;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+::selection {
+  background-color: var(--color-accent-soft);
+}
+
+input,
+select {
+  color-scheme: dark;
+}

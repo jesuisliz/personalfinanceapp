@@ -18,26 +18,15 @@ import {
   type ScenarioResult,
 } from "./api";
 import { formatAmount } from "./format";
+import { Card, PrimaryButton, StatTile, inputClass } from "./ui";
 
 const COLOR_GOOD = "#0ca30c";
 const COLOR_CRITICAL = "#d03b3b";
-const COLOR_MUTED = "#898781";
 
 function dollarsToCents(input: string): number | null {
   const n = Number(input);
   if (Number.isNaN(n)) return null;
   return Math.round(n * 100);
-}
-
-function StatTile({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
-      <div className="text-sm text-gray-500">{label}</div>
-      <div className="text-2xl font-semibold" style={{ color: valueColor ?? "#0b0b0b" }}>
-        {value}
-      </div>
-    </div>
-  );
 }
 
 function GoalCard({
@@ -64,27 +53,30 @@ function GoalCard({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
+    <Card>
       <div className="flex items-start justify-between">
         <div>
-          <h3 className="font-semibold text-gray-900">{goal.name}</h3>
-          <div className="text-sm text-gray-500">
+          <h3 className="font-semibold text-ink">{goal.name}</h3>
+          <div className="text-sm text-ink-muted">
             {formatAmount(goal.saved_so_far_cents)} of {formatAmount(goal.target_amount_cents)}
             {goal.target_date && <> &middot; target {goal.target_date}</>}
           </div>
         </div>
-        <button className="text-xs text-red-600 hover:underline" onClick={() => onDelete(goal.id)}>
+        <button className="text-xs text-critical hover:underline" onClick={() => onDelete(goal.id)}>
           Delete
         </button>
       </div>
 
-      <div className="mt-2 bg-gray-100 rounded h-3 overflow-hidden">
-        <div className="h-3 rounded bg-blue-600" style={{ width: `${progressPct}%` }} />
+      <div className="mt-2 bg-surface-2 rounded-full h-3 overflow-hidden">
+        <div
+          className="h-3 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent-soft)]"
+          style={{ width: `${progressPct}%` }}
+        />
       </div>
 
       <div className="mt-2 text-sm">
         {!projection ? (
-          <span className="text-gray-400">Loading projection...</span>
+          <span className="text-ink-muted">Loading projection...</span>
         ) : projection.status === "already_met" ? (
           <span className="font-medium" style={{ color: COLOR_GOOD }}>
             Goal already met
@@ -105,25 +97,25 @@ function GoalCard({
         {editing ? (
           <div className="flex items-center gap-2">
             <input
-              className="border border-gray-300 rounded px-2 py-1 text-sm w-28"
+              className={`${inputClass} w-28`}
               value={savedInput}
               onChange={(e) => setSavedInput(e.target.value)}
               autoFocus
             />
-            <button className="text-xs text-blue-600 hover:underline" onClick={save}>
+            <button className="text-xs text-accent hover:underline" onClick={save}>
               Save
             </button>
-            <button className="text-xs text-gray-500 hover:underline" onClick={() => setEditing(false)}>
+            <button className="text-xs text-ink-muted hover:underline" onClick={() => setEditing(false)}>
               Cancel
             </button>
           </div>
         ) : (
-          <button className="text-xs text-blue-600 hover:underline" onClick={() => setEditing(true)}>
+          <button className="text-xs text-accent hover:underline" onClick={() => setEditing(true)}>
             Update saved-so-far
           </button>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -226,11 +218,11 @@ export default function Planning() {
     }
   }
 
-  if (loading) return <p className="text-gray-500">Loading...</p>;
+  if (loading) return <p className="text-ink-muted">Loading...</p>;
 
   return (
     <div className="max-w-3xl space-y-6">
-      {error && <p className="text-red-600">{error}</p>}
+      {error && <p className="text-critical">{error}</p>}
 
       <div className="grid grid-cols-2 gap-4">
         <StatTile
@@ -249,28 +241,23 @@ export default function Planning() {
         />
       </div>
 
-      <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
-        <h2 className="font-semibold text-gray-900 mb-2">Current balance (savings/cash on hand)</h2>
-        <p className="text-xs mb-2" style={{ color: COLOR_MUTED }}>
+      <Card>
+        <h2 className="font-semibold text-ink mb-2">Current balance (savings/cash on hand)</h2>
+        <p className="text-xs text-ink-muted mb-2">
           Entered manually &mdash; the app can only see bounded-date-range CSV imports, never a true
           starting balance, so it never guesses this number.
         </p>
         <div className="flex items-center gap-2">
-          <span className="text-gray-500">$</span>
+          <span className="text-ink-muted">$</span>
           <input
-            className="border border-gray-300 rounded px-2 py-1 text-sm w-32"
+            className={`${inputClass} w-32`}
             value={balanceInput}
             onChange={(e) => setBalanceInput(e.target.value)}
           />
-          <button
-            className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
-            onClick={handleSetBalance}
-          >
-            Update
-          </button>
+          <PrimaryButton onClick={handleSetBalance}>Update</PrimaryButton>
         </div>
         {runway?.balance_configured && (
-          <p className="text-sm text-gray-600 mt-2">
+          <p className="text-sm text-ink-secondary mt-2">
             Average monthly expenses (last 6 months): {formatAmount(runway.avg_monthly_expense_cents)}
             {runway.projected_end_date && (
               <>
@@ -280,13 +267,13 @@ export default function Planning() {
             )}
           </p>
         )}
-      </div>
+      </Card>
 
-      <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
-        <h2 className="font-semibold text-gray-900 mb-3">Savings goals (vacations are just goals)</h2>
+      <Card>
+        <h2 className="font-semibold text-ink mb-3">Savings goals (vacations are just goals)</h2>
         <div className="space-y-3 mb-4">
           {goals.length === 0 ? (
-            <p className="text-gray-500 text-sm">No goals yet &mdash; add one below.</p>
+            <p className="text-ink-muted text-sm">No goals yet &mdash; add one below.</p>
           ) : (
             goals.map((g) => (
               <GoalCard
@@ -300,46 +287,41 @@ export default function Planning() {
           )}
         </div>
 
-        <div className="border-t border-gray-200 pt-3">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">New goal</h3>
+        <div className="border-t border-hairline pt-3">
+          <h3 className="text-sm font-medium text-ink-secondary mb-2">New goal</h3>
           <div className="flex flex-wrap gap-2">
             <input
-              className="border border-gray-300 rounded px-2 py-1 text-sm flex-1 min-w-[150px]"
+              className={`${inputClass} flex-1 min-w-[150px]`}
               placeholder="Name (e.g. Hawaii Vacation)"
               value={newGoalName}
               onChange={(e) => setNewGoalName(e.target.value)}
             />
             <input
-              className="border border-gray-300 rounded px-2 py-1 text-sm w-28"
+              className={`${inputClass} w-28`}
               placeholder="Target $"
               value={newGoalAmount}
               onChange={(e) => setNewGoalAmount(e.target.value)}
             />
             <input
               type="date"
-              className="border border-gray-300 rounded px-2 py-1 text-sm"
+              className={inputClass}
               value={newGoalDate}
               onChange={(e) => setNewGoalDate(e.target.value)}
             />
-            <button
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
-              onClick={handleCreateGoal}
-            >
-              Add goal
-            </button>
+            <PrimaryButton onClick={handleCreateGoal}>Add goal</PrimaryButton>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
-        <h2 className="font-semibold text-gray-900 mb-1">Scenario analysis</h2>
-        <p className="text-xs mb-3" style={{ color: COLOR_MUTED }}>
+      <Card>
+        <h2 className="font-semibold text-ink mb-1">Scenario analysis</h2>
+        <p className="text-xs text-ink-muted mb-3">
           Reuses the same backend-computed savings estimate as the Chat tab &mdash; never an LLM guess.
         </p>
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-sm text-gray-700">Reduce</span>
+          <span className="text-sm text-ink-secondary">Reduce</span>
           <select
-            className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"
+            className={inputClass}
             value={scenarioCategory}
             onChange={(e) => setScenarioCategory(e.target.value)}
           >
@@ -350,21 +332,21 @@ export default function Planning() {
             ))}
             <option value="Uncategorized">Uncategorized</option>
           </select>
-          <span className="text-sm text-gray-700">by</span>
+          <span className="text-sm text-ink-secondary">by</span>
           <input
-            className="border border-gray-300 rounded px-2 py-1 text-sm w-16"
+            className={`${inputClass} w-16`}
             value={scenarioReduction}
             onChange={(e) => setScenarioReduction(e.target.value)}
           />
-          <span className="text-sm text-gray-700">% over</span>
+          <span className="text-sm text-ink-secondary">% over</span>
           <input
-            className="border border-gray-300 rounded px-2 py-1 text-sm w-16"
+            className={`${inputClass} w-16`}
             value={scenarioMonths}
             onChange={(e) => setScenarioMonths(e.target.value)}
           />
-          <span className="text-sm text-gray-700">months, applied to</span>
+          <span className="text-sm text-ink-secondary">months, applied to</span>
           <select
-            className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"
+            className={inputClass}
             value={scenarioGoalId}
             onChange={(e) => setScenarioGoalId(e.target.value)}
           >
@@ -375,18 +357,13 @@ export default function Planning() {
               </option>
             ))}
           </select>
-          <button
-            className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
-            onClick={handleRunScenario}
-          >
-            Run
-          </button>
+          <PrimaryButton onClick={handleRunScenario}>Run</PrimaryButton>
         </div>
 
-        {scenarioError && <p className="text-red-600 text-sm">{scenarioError}</p>}
+        {scenarioError && <p className="text-critical text-sm">{scenarioError}</p>}
 
         {scenarioResult && (
-          <div className="text-sm space-y-1">
+          <div className="text-sm space-y-1 text-ink-secondary">
             <p>
               Estimated savings: {formatAmount(scenarioResult.savings_estimate.monthly_savings_cents)}/month (
               {formatAmount(scenarioResult.savings_estimate.annual_savings_cents)}/year), based on an average
@@ -417,7 +394,7 @@ export default function Planning() {
             )}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

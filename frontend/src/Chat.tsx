@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { sendChatMessage, type ChatMessage as ApiChatMessage, type ToolCall } from "./api";
 import { formatAmount } from "./format";
+import { Card, PrimaryButton, inputClass } from "./ui";
 
 interface DisplayMessage {
   role: "user" | "assistant" | "system";
@@ -11,9 +12,9 @@ interface DisplayMessage {
 function MiniTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div className="overflow-x-auto mt-1">
-      <table className="text-xs border border-gray-200 rounded">
+      <table className="text-xs border border-hairline rounded-lg overflow-hidden">
         <thead>
-          <tr className="bg-gray-50 text-gray-600">
+          <tr className="bg-surface-2 text-ink-secondary">
             {headers.map((h) => (
               <th key={h} className="px-2 py-1 text-left font-medium">
                 {h}
@@ -23,9 +24,9 @@ function MiniTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-t border-gray-100">
+            <tr key={i} className="border-t border-hairline">
               {row.map((cell, j) => (
-                <td key={j} className="px-2 py-1 text-gray-700 whitespace-nowrap">
+                <td key={j} className="px-2 py-1 text-ink-secondary whitespace-nowrap">
                   {cell}
                 </td>
               ))}
@@ -41,7 +42,7 @@ function ToolResultTable({ toolCall }: { toolCall: ToolCall }) {
   const { name, result } = toolCall;
 
   if (result && typeof result === "object" && !Array.isArray(result) && "error" in result) {
-    return <p className="text-xs text-red-600 mt-1">Tool error: {String((result as { error: unknown }).error)}</p>;
+    return <p className="text-xs text-critical mt-1">Tool error: {String((result as { error: unknown }).error)}</p>;
   }
 
   if (name === "get_monthly_summary" && Array.isArray(result)) {
@@ -86,7 +87,7 @@ function ToolResultTable({ toolCall }: { toolCall: ToolCall }) {
       <div className="space-y-2">
         {Object.entries(trends).map(([month, rows]) => (
           <div key={month}>
-            <div className="text-xs font-medium text-gray-500 mt-1">{month}</div>
+            <div className="text-xs font-medium text-ink-muted mt-1">{month}</div>
             <MiniTable headers={["Category", "Total"]} rows={rows.map((r) => [r.category_name, formatAmount(r.total_cents)])} />
           </div>
         ))}
@@ -116,7 +117,7 @@ function ToolResultTable({ toolCall }: { toolCall: ToolCall }) {
     );
   }
 
-  return <pre className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre>;
+  return <pre className="text-xs text-ink-muted mt-1 whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre>;
 }
 
 export default function Chat() {
@@ -148,21 +149,21 @@ export default function Chat() {
 
   return (
     <div className="max-w-3xl">
-      <div className="bg-white border border-gray-200 rounded shadow-sm p-4 mb-4 min-h-[300px] space-y-4">
+      <Card className="mb-4 min-h-[300px] space-y-4">
         {messages.length === 0 ? (
-          <p className="text-gray-500 text-sm">
+          <p className="text-ink-muted text-sm">
             Ask a question about your spending, e.g. &quot;How much did I spend eating out last month?&quot;
           </p>
         ) : (
           messages.map((m, i) => (
             <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
               <div
-                className={`inline-block max-w-[85%] rounded px-3 py-2 text-sm ${
+                className={`inline-block max-w-[85%] rounded-xl px-3 py-2 text-sm ${
                   m.role === "user"
-                    ? "bg-blue-600 text-white"
+                    ? "bg-accent text-canvas"
                     : m.role === "system"
-                      ? "bg-red-50 text-red-700 border border-red-200"
-                      : "bg-gray-100 text-gray-900"
+                      ? "bg-critical/15 text-critical border border-critical/40"
+                      : "bg-surface-2 text-ink"
                 }`}
               >
                 {m.content}
@@ -177,12 +178,12 @@ export default function Chat() {
             </div>
           ))
         )}
-        {loading && <p className="text-gray-400 text-sm">Thinking...</p>}
-      </div>
+        {loading && <p className="text-ink-muted text-sm">Thinking...</p>}
+      </Card>
 
       <div className="flex gap-2">
         <input
-          className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm"
+          className={`${inputClass} flex-1 px-3 py-2`}
           placeholder="Ask about your spending..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -190,13 +191,9 @@ export default function Chat() {
             if (e.key === "Enter") handleSend();
           }}
         />
-        <button
-          className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
-        >
+        <PrimaryButton className="px-4 py-2" onClick={handleSend} disabled={loading || !input.trim()}>
           Send
-        </button>
+        </PrimaryButton>
       </div>
     </div>
   );
