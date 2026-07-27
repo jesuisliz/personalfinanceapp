@@ -1,6 +1,6 @@
 # Low-Level Design — Personal Finance App (Phase 4: Financial Chatbot)
 
-**Status: built and unit-verified as of 2026-07-27; live validation with real questions deferred until a real `OPENAI_API_KEY` is added to `backend/.env`.**
+**Status: built, unit-verified, and live-validated with a real `OPENAI_API_KEY` as of 2026-07-27 — all 6 tools exercised live through the actual Chat UI, two real bugs found and fixed in the process (see §6).**
 
 Companion to `hld_claude.md` / `lld_claude.md` (Phase 1), `lld_phase2_claude.md` (Phase 2), and the Phase 3 dashboard (no written doc — see `phase3_status` memory). Covers the OpenAI-backed chatbot: CLAUDE.md's Phase 4 roadmap item, answering questions like "Where is my money going?", "How much did I spend eating out?", "What categories increased?", "How much could I save by reducing dining?"
 
@@ -60,12 +60,16 @@ Deliberate choice, confirmed with the user before building: chat history is **in
 - Missing `OPENAI_API_KEY` → confirmed **live**, in the actual running app (not just a test): `POST /chat` returns HTTP 400 with `"OPENAI_API_KEY is not configured. Add it to backend/.env."`, and the Chat tab renders that message as an inline error bubble rather than crashing. The rest of the app (Transactions, Dashboard) was confirmed unaffected in the same session.
 - `tsc -b` and `oxlint` clean on the frontend.
 
-**Deferred until a real `OPENAI_API_KEY` is added** (per user's explicit choice not to configure one yet):
-- Each of CLAUDE.md's four example questions answered correctly through the live Chat tab, routed to the right tool(s) with the right arguments.
-- Independent raw-SQL cross-check (bypassing all app code, same discipline as `feedback_independent_verification`) of at least one live answer per tool.
-- Confirming every numeric claim in a real model reply traces to a tool result the user can see alongside it.
+**Live-verified 2026-07-27, once the user added a real key** — all 6 tools exercised through the actual running Chat tab, not just unit tests:
+- `get_category_breakdown` / `get_category_transactions`: "How much did I spend on Dining & Drinks / Groceries last month?" → $1,579.68 and $910.23 respectively, each independently cross-checked via raw SQL (zero shared code, run from outside the watched `backend/` directory) — **exact match** both times.
+- `get_top_merchants`, `get_monthly_summary`, `get_category_trends`, `estimate_category_reduction_savings`, `get_savings_goals`, `get_financial_runway`: each called correctly with sensible arguments through natural-language questions; `get_savings_goals`/`get_financial_runway` correctly reported the honest "no goals configured" / "balance not set" states rather than fabricating numbers — the harder, more meaningful test case per this project's verification conventions.
+- `tsc -b` and `oxlint` still clean; full backend suite 116/116 (114 + 2 new regression tests).
 
-These are the actual next steps once a key is available — not forgotten, just correctly sequenced behind having something to test against.
+**Two real bugs found by this live testing and fixed the same session (not something a fake-client unit test could have caught):**
+1. The chatbot had no anchor for "today" — asked live, it guessed a training-data month (`2023-09`) instead of the data's real latest month, silently returning nothing for "last month" questions. Fixed by grounding the system prompt in `latest_transaction_date` each request.
+2. Tool results are integers in cents; the model was *told* to convert to dollars in the system prompt but, in a multi-month `get_category_trends` narration, converted some entries correctly and others not at all (a 100x error — `85824` narrated as "$85,824" instead of $858.24). Fixed at the root: `chat/service.py::_cents_to_dollars` now converts every tool result to dollars **before** the model ever sees it, removing the conversion from its job entirely rather than trusting prompt-following.
+
+**Known residual limitation, not fully fixable by architecture (documented, not silently accepted):** even after the cents/dollars fix, the same multi-month trends question showed the model transcribing a couple of already-correct dollar figures with a dropped digit (a 10x slip, e.g. $853.49 narrated as "$85.35") — a narration-fidelity slip, not a calculation or unit error; the underlying tool call and the UI's own rendered tables are always exactly correct regardless. This is the reason Phase 4 deliberately renders each tool's raw result alongside the prose reply (§5) — treat the prose as a summary and the table beneath it as the number of record.
 
 ## 7. Explicit Non-Goals (this phase)
 
