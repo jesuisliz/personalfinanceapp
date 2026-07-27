@@ -5,19 +5,31 @@ from sqlalchemy.orm import Session
 
 from app.chat.tools import build_tool_schemas, dispatch_tool_call
 from app.config import OPENAI_API_KEY
+from app.dashboard.aggregates import latest_transaction_date
 from app.schemas import ChatMessageIn, ChatReplyOut, ToolCallOut
 
 MODEL = "gpt-4o-mini"
 MAX_TOOL_ROUNDS = 5
 MAX_HISTORY_MESSAGES = 20
 
-SYSTEM_PROMPT = (
+BASE_SYSTEM_PROMPT = (
     "You are a financial assistant for a personal finance app. You have tools that query "
     "the user's real transaction data. Never sum, average, estimate, or otherwise calculate "
     "a financial total yourself -- always call a tool for any numeric aggregation. You may "
     "describe or compare numbers a tool has already returned. All amounts from tools are in "
     "cents; convert to dollars when describing them. Be concise and direct."
 )
+
+
+def _system_prompt(session: Session) -> str:
+    latest = latest_transaction_date(session, account_id=None)
+    if latest is None:
+        return BASE_SYSTEM_PROMPT
+    return (
+        f"{BASE_SYSTEM_PROMPT} The most recent transaction in the data is dated {latest.isoformat()} "
+        f"-- treat that as \"today\" when resolving relative phrases like \"this month\" or \"last "
+        "month\" into a YYYY-MM value for tool calls. Do not use your own training date."
+    )
 
 
 def _default_client() -> OpenAI:
@@ -35,7 +47,7 @@ def answer_question(
     client = client or _default_client()
     tool_schemas = build_tool_schemas(session)
 
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict] = [{"role": "system", "content": _system_prompt(session)}]
     messages += [{"role": h.role, "content": h.content} for h in history[-MAX_HISTORY_MESSAGES:]]
     messages.append({"role": "user", "content": message})
 

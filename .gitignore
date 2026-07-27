@@ -2,6 +2,7 @@
 data/
 backend/*.db
 backend/.env
+/.env
 
 # Python
 backend/venv/

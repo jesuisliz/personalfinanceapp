@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
