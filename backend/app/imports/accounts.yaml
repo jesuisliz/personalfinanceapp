@@ -1,0 +1,51 @@
+- match: "Chase3403"
+  parser: chase
+  accounts:
+    - name: "Chase Sapphire (...3403)"
+      institution: "Chase"
+      account_type: "credit_card"
+
+- match: "Chase5947"
+  parser: chase
+  accounts:
+    - name: "Chase Freedom (...5947)"
+      institution: "Chase"
+      account_type: "credit_card"
+
+- match: "ExportData_BOA"
+  parser: boa
+  accounts:
+    - name: "BOA Customized Cash Rewards"
+      institution: "Bank of America"
+      account_type: "credit_card"
+      row_filter:
+        account_name_contains: "Customized Cash Rewards"
+    - name: "BOA Travel Rewards Visa Signature"
+      institution: "Bank of America"
+      account_type: "credit_card"
+      row_filter:
+        account_name_contains: "Travel Rewards Visa Signature"
+    - name: "BOA Interest Checking"
+      institution: "Bank of America"
+      account_type: "checking"
+      row_filter:
+        account_name_contains: "Bank - Bofa Interest Checking"
+    - name: "BOA Savings"
+      institution: "Bank of America"
+      account_type: "savings"
+      row_filter:
+        account_name_contains: "Bank - Credit"
+
+- match: "US Bank - 8606"
+  parser: us_bank
+  accounts:
+    - name: "US Bank (...8606)"
+      institution: "US Bank"
+      account_type: "credit_card"
+
+- match: "AmericanExpress_activity"
+  parser: amex
+  accounts:
+    - name: "American Express"
+      institution: "American Express"
+      account_type: "credit_card"

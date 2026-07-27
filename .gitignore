@@ -1,0 +1,21 @@
+# Real financial data — never commit (see docs/PROJECT_CONTEXT.md Privacy section)
+data/
+backend/*.db
+backend/.env
+
+# Python
+backend/venv/
+**/__pycache__/
+*.pyc
+backend/.pytest_cache/
+
+# Node / frontend build output (frontend/.gitignore also covers these within that subtree)
+frontend/node_modules/
+frontend/dist/
+
+# Claude Code local settings (machine-specific permission history, not shared config)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
