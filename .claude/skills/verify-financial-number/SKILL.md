@@ -1,6 +1,6 @@
 ---
 name: verify-financial-number
-description: Independently verify a computed financial value shown by the app (a dashboard total, chat answer, runway/goal projection, scenario estimate) — used whenever confirming a calculation is correct, not just that code ran without error. Triggers on "verify", "check this number", "did you check off the success criteria", or any point where a computed total needs confirming before reporting a feature as done.
+description: Independently verify a computed financial value shown by the app (a dashboard total, chat answer, runway/goal projection, scenario estimate) — used whenever confirming a calculation is correct, not just that code ran without error. For a chatbot/LLM-narrated answer this means checking both the tool call AND the prose reply, not just one. Triggers on "verify", "check this number", "did you check off the success criteria", or any point where a computed total needs confirming before reporting a feature as done.
 ---
 
 # Verify a Financial Number Independently
@@ -42,3 +42,13 @@ State both values side by side (e.g. "app: 492938 cents, independent SQL: 492938
 
 - Delete the throwaway verification script from the scratchpad once done.
 - If verification required creating real records in the actual app database (a test goal, a manually-set balance, a demo transaction) rather than an isolated in-memory test fixture, delete or reset them afterward via the app's own API where possible — this is the user's live personal financial app, not a disposable test environment, and it should be left exactly as it was found aside from the feature you were asked to build.
+
+## 7. For a chatbot/LLM-narrated answer, verify the prose too — not just the tool call
+
+A correct backend computation can still be reported wrong. Confirmed during Phase 4's live validation: `get_category_trends` returned exactly correct cents figures, but the model's prose reply converted some entries to dollars correctly and others not at all (a 100x error, e.g. `85824` cents narrated as "$85,824" instead of $858.24) — then, after fixing that by converting cents to dollars *before* the model ever saw them, a second live run showed the model transcribing a couple of already-correct dollar figures with a dropped digit (a 10x slip, $853.49 narrated as "$85.35"). Two different failure classes, both invisible if you only check the tool's JSON result.
+
+So for any chatbot feature, check both layers, not just one:
+1. **The tool call is correct** — independently verify the `tool_calls[].result` value via raw SQL, per §1-5 above, same as any other computed value.
+2. **The prose reply matches the tool call it's supposedly narrating** — read the actual sentence the user would see and diff every number in it against the corresponding `tool_calls[].result` value. Don't assume a correct tool call implies a correct sentence.
+
+If the prose is wrong while the tool call is right: the cheapest fix is removing the arithmetic/conversion burden from the model entirely (e.g. convert units before the model ever sees the number, as this project's `chat/service.py::_cents_to_dollars` now does) rather than tightening the prompt wording — a same-session test proved prompt-following alone isn't reliable enough for this. But don't expect that fix to be exhaustive: a pure transcription slip (correct data, misquoted in prose) is a real LLM limitation that isn't fully closable by better data shaping. When that residual risk exists, the mitigation is architectural, not a prompt tweak — show the tool's raw result alongside the prose (this project always does) so the number of record is visible, not just asserted.
