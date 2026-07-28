@@ -71,11 +71,15 @@ Five sample statements currently in `data/`, each structurally different:
 | Source | Key columns | Sign convention |
 |---|---|---|
 | Chase (checking/credit, e.g. `Chase3403`, `Chase5947`) | `Transaction Date, Post Date, Description, Category, Type, Amount, Memo` | negative = spend |
-| Bank of America (`ExportData_BOA.csv`) | `Status, Date, Original Description, Split Type, Category, Currency, Amount, User Description, Memo, Classification, Account Name, Simple Description` (UTF-8 BOM) | negative = spend |
+| Bank of America — aggregator export (`ExportData_BOA.csv`) | `Status, Date, Original Description, Split Type, Category, Currency, Amount, User Description, Memo, Classification, Account Name, Simple Description` (UTF-8 BOM) | negative = spend |
+| Bank of America — native checking/savings export (e.g. `ExportData_BOA_1962_6mos.csv`) | 5-line summary block, then `Date, Description, Amount, Running Bal.`; no BOM, no Account Name column (file is already scoped to one account) | negative = spend |
+| Bank of America — native credit card export (e.g. `ExportData_BOA_January2026_9837.csv`) | `Posted Date, Reference Number, Payee, Address, Amount` | negative = spend |
 | US Bank (`US Bank - 8606_...csv`) | `Date, Transaction, Name, Memo, Amount` | unsigned; direction comes from `Transaction` (e.g. `CREDIT`) |
 | American Express (`AmericanExpress_activity.csv`) | `Date, Description, Amount` | **inverted**: positive = charge, negative = payment/credit |
 
 Each format gets its own parser module. New banks get a new parser, not a change to existing ones. Amex is the reminder why this matters: its sign convention is the opposite of every other source (a charge is *positive* and a payment is *negative*), so its parser negates the raw amount rather than passing it through — a mistake here would silently flip every dollar amount on that account.
+
+Bank of America turned out to have a second reminder of this: downloading history *per account* directly from BofA (instead of through the aggregator that produced `ExportData_BOA.csv`) returns a completely different native export format per account type — not the same columns with a wider date range, as it first appeared. Two new parsers (`boa_native_bank`, `boa_native_card`) handle these; `accounts.yaml` routes by the more specific filename pattern (e.g. `ExportData_BOA_1962`) checked *before* the generic `ExportData_BOA` aggregator entry. This also surfaced a real account (`...1640`, a second checking account) that the aggregator export had never captured on its own — its activity had only ever appeared indirectly, as transfer line items on other accounts.
 
 ### 4.2 Account mapping (config-driven)
 
@@ -138,6 +142,7 @@ Success criteria:
 - Every transaction is traceable to one `Account` — including BOA's multi-account file being split correctly into all four real accounts it contains (two credit cards, checking, savings — confirmed by running the pipeline against the full real file, not assumed from a preview).
 - Transactions are visible in a plain list/table in the running app — not just present in the DB.
 - No transaction is silently dropped or guessed; malformed rows, and rows belonging to an account the config doesn't yet recognize, fail the import loudly rather than being misattributed (see LLD §8).
+- Follow-up (2026-07-28): re-downloading BOA history per account (native export) instead of through the aggregator revealed a real account (`...1640`) the aggregator had never surfaced on its own, and produced files whose date range overlaps already-imported aggregator data under different description text — meaning the hash-based dedupe in §4.4 would *not* catch the overlap automatically, since it depends on matching descriptions. Handled by trimming the backfill files to the non-overlapping date range before import rather than relying on dedupe — see `lld_claude.md` §4 for the parsers and §11 for the specific dates.
 - Per-account totals computed by the app match an independent hand-sum of the raw CSVs — actually verified, not just structurally plausible.
 
 ### Phase 2 — Categories, manual editing, merchant cleanup, transfers/CC payments

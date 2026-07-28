@@ -97,6 +97,34 @@ Maps a filename pattern to one or more account definitions. Matching is "pattern
       institution: "Chase"
       account_type: "credit_card"
 
+- match: "ExportData_BOA_1962"
+  parser: boa_native_bank
+  accounts:
+    - name: "BOA Interest Checking"
+      institution: "Bank of America"
+      account_type: "checking"
+
+- match: "ExportData_BOA_1640"
+  parser: boa_native_bank
+  accounts:
+    - name: "BOA Checking (...1640)"
+      institution: "Bank of America"
+      account_type: "checking"
+
+- match: "ExportData_BOA_3938"
+  parser: boa_native_bank
+  accounts:
+    - name: "BOA Savings"
+      institution: "Bank of America"
+      account_type: "savings"
+
+- match: "9837"
+  parser: boa_native_card
+  accounts:
+    - name: "BOA Customized Cash Rewards"
+      institution: "Bank of America"
+      account_type: "credit_card"
+
 - match: "ExportData_BOA"
   parser: boa
   accounts:
@@ -132,7 +160,9 @@ Maps a filename pattern to one or more account definitions. Matching is "pattern
       account_type: "credit_card"
 ```
 
-**Why BOA is a list of accounts, not one:** the BOA export's `Account Name` column mixes rows from multiple real accounts in a single CSV. Chase and US Bank files are one-account-per-file, so their `accounts` list has exactly one entry with no `row_filter`. The BOA parser uses `row_filter.account_name_contains` to split incoming rows to the correct `Account` record.
+**Why BOA is a list of accounts, not one:** the BOA aggregator export's `Account Name` column mixes rows from multiple real accounts in a single CSV. Chase and US Bank files are one-account-per-file, so their `accounts` list has exactly one entry with no `row_filter`. The BOA parser uses `row_filter.account_name_contains` to split incoming rows to the correct `Account` record.
+
+**Native per-account BOA exports (2026-07-28):** downloading history directly from BofA per account (`ExportData_BOA_1962_6mos.csv`, `_1640_6mos.csv`, `_3938_6mos.csv`, `ExportData_BOA_<Month>2026_9837.csv`) produces a different file per real account, not one combined file — so these entries are single-account, no `row_filter`, same as Chase/US Bank. They match on the account number embedded in the filename (`1962`, `1640`, `3938`, `9837`) rather than the generic `ExportData_BOA` prefix, and are listed **before** the generic `ExportData_BOA` entry since `match()` is first-match-wins on substring and every one of these filenames also contains `"ExportData_BOA"`. `1962` → BOA Interest Checking, `3938` → BOA Savings, `9837` → BOA Customized Cash Rewards (all three confirmed by cross-referencing transfer/payment amounts against the original aggregator file); `1640` is a second checking account the aggregator export never surfaced on its own.
 
 **This was confirmed the hard way, not assumed:** the design was originally written expecting two BOA accounts (one credit card, one checking) based on a partial preview of the file. Running the pipeline against the *complete* real file surfaced two more real accounts the preview never showed — a second credit card (`Travel Rewards Visa Signature`) and a savings account whose export literally labels it `Bank of America - Bank - Credit` (confirmed with the user to be a savings account despite the odd name, paired with the checking account via transfers and interest income). Because `resolve_account_definition` raises on an unrecognized `Account Name` instead of silently defaulting to some account, this showed up as a hard error during verification rather than misattributed transactions — exactly the failure mode Section 8's error handling is meant to produce. The lesson generalized into `.claude/skills/add-bank-source/SKILL.md`: always inspect the *complete* file, not a sample of it, especially for any format where one file can contain multiple accounts.
 
@@ -188,6 +218,34 @@ Source columns: `Status, Date, Original Description, Split Type, Category, Curre
 | `account_match_key` | raw `Account Name` value, used to resolve which config `accounts[]` entry (via `row_filter.account_name_contains`) this row belongs to |
 
 **Pending vs. posted:** both are imported. `Status` is not currently stored as its own column (not in the Phase 1 schema) — a `pending` row and its later `posted` counterpart are two different rows in the export with no shared ID, so no reconciliation is attempted in Phase 1. This is a known limitation, called out in Section 7.
+
+### 4.2b Bank of America native checking/savings parser (`boa_native_bank.py`)
+
+Source columns: a 5-line summary block (`Description,,Summary Amt.` then Beginning/Total credits/Total debits/Ending balance rows), a blank line, then `Date, Description, Amount, Running Bal.`. No BOM. No `Account Name` column — each file is already scoped to one real account, so this parser sets `account_match_key` to `None` and the config entry has exactly one unfiltered account (like Chase/US Bank).
+
+| Field | Rule |
+|---|---|
+| `date` | find the header line starting with `Date,`, then parse `Date` as `MM/DD/YYYY` for every row after it |
+| `posted_date` | `None` (file gives one date only, no pending/posted distinction) |
+| `description` | `Description`, stripped |
+| `amount_cents` | `Amount`, strip thousands-separator commas before Decimal parse (same as the aggregator BOA parser) — already signed, no flip |
+| `raw_category` | `None` (no category column) |
+| `memo` | `None` (no memo column) |
+
+**Beginning balance row:** the first data row (`Beginning balance as of ...`) has an empty `Amount` (only `Running Bal.` is populated) — skipped rather than parsed, since it isn't a real transaction.
+
+### 4.2c Bank of America native credit card parser (`boa_native_card.py`)
+
+Source columns: `Posted Date, Reference Number, Payee, Address, Amount`. No BOM.
+
+| Field | Rule |
+|---|---|
+| `date` | parse `Posted Date` as `MM/DD/YYYY` |
+| `posted_date` | `None` (only one date given) |
+| `description` | `Payee`, collapse repeated internal whitespace |
+| `amount_cents` | `Amount` — negative = charge, positive = payment (same convention as every other BOA source; confirmed against the real sample: a `400.28` payment row matches, to the cent, a `-400.28` "BANK OF AMERICA CREDIT CARD Bill Payment" row in the corresponding checking account's file) |
+| `raw_category` | `None` (no category column) |
+| `memo` | `None` (no memo column; `Reference Number`/`Address` are not currently stored) |
 
 ### 4.3 US Bank parser (`us_bank.py`)
 
@@ -307,6 +365,7 @@ Concrete, checkable against the five real files in `data/` — this is what "Pha
 - `GET /transactions` returns all imported rows, filterable by account and date range, and the totals a human would hand-add from the raw CSVs match the sums returned by the API.
 - Malformed input (e.g. a filename matching no `accounts.yaml` entry, or a BOA row whose `Account Name` matches no configured `row_filter`) fails the import with a clear error — it never creates a guessed account or drops the file silently.
 - Automated tests in `tests/` (parsers + pipeline, per Section 10) pass using only synthetic fixtures — no real statement from `data/` is ever read by a test or committed to version control.
+- (2026-07-28 follow-up) Native per-account BOA re-downloads for `1962` (checking) and `3938` (savings) cover a date range that overlaps already-imported aggregator data (Apr27–Jul25 for `1962`, May7–Jul25 for `3938`), with different description text than the aggregator export — so the hash-based dedupe in Section 5.2 would not catch the overlap. Handled by trimming those two files to their non-overlapping date range (Jan1 up to, not including, the aggregator's earliest date for that account) before import, rather than importing the full 6-month file and relying on dedupe. `1640` (new account) and the `9837` monthly card files have no overlap and were imported in full.
 
 ## 12. Deferred / Known Limitations (carried forward, not solved here)
 

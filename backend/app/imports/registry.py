@@ -2,12 +2,16 @@ from app.config import ConfigEntry, load_accounts_config
 from app.imports.amex import AmexParser
 from app.imports.base import Parser
 from app.imports.boa import BoaParser
+from app.imports.boa_native_bank import BoaNativeBankParser
+from app.imports.boa_native_card import BoaNativeCardParser
 from app.imports.chase import ChaseParser
 from app.imports.us_bank import UsBankParser
 
 PARSERS: dict[str, Parser] = {
     "chase": ChaseParser(),
     "boa": BoaParser(),
+    "boa_native_bank": BoaNativeBankParser(),
+    "boa_native_card": BoaNativeCardParser(),
     "us_bank": UsBankParser(),
     "amex": AmexParser(),
 }

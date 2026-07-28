@@ -1,0 +1,11 @@
+Description,,Summary Amt.
+Beginning balance as of 01/01/2026,,"1,000.00"
+Total credits,,"500.00"
+Total debits,,"-200.00"
+Ending balance as of 01/31/2026,,"1,300.00"
+
+Date,Description,Amount,Running Bal.
+01/01/2026,Beginning balance as of 01/01/2026,,"1,000.00"
+01/05/2026,"Online scheduled transfer from CHK 1962 Confirmation# 1234567890","250.00","1,250.00"
+01/10/2026,"PORTLAND WATER DES:UTILITY ID:5288027 INDN:LIEZEL J *ICUSPIT CO ID:0000063576 TEL","-12.08","1,237.92"
+01/15/2026,"Interest Earned","0.20","1,238.12"

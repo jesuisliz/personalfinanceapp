@@ -12,6 +12,35 @@
       institution: "Chase"
       account_type: "credit_card"
 
+- match: "ExportData_BOA_1962"
+  parser: boa_native_bank
+  accounts:
+    - name: "BOA Interest Checking"
+      institution: "Bank of America"
+      account_type: "checking"
+
+- match: "ExportData_BOA_1640"
+  parser: boa_native_bank
+  accounts:
+    - name: "BOA Checking (...1640)"
+      institution: "Bank of America"
+      account_type: "checking"
+
+- match: "ExportData_BOA_3938"
+  parser: boa_native_bank
+  accounts:
+    - name: "BOA Savings"
+      institution: "Bank of America"
+      account_type: "savings"
+
+# native card export, e.g. "ExportData_BOA_January2026_9837.csv"
+- match: "9837"
+  parser: boa_native_card
+  accounts:
+    - name: "BOA Customized Cash Rewards"
+      institution: "Bank of America"
+      account_type: "credit_card"
+
 - match: "ExportData_BOA"
   parser: boa
   accounts:

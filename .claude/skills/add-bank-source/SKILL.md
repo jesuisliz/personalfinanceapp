@@ -16,7 +16,9 @@ Read the actual CSV in `data/` (headers + at least 10-15 data rows, not just the
 - Date format(s) — transaction date vs. posted date, if both exist.
 - Whether the file encodes a BOM (`open(..., 'rb').read()[:5]` — look for `\xef\xbb\xbf`).
 
-Never guess at a format from a filename or bank name alone — read the actual bytes.
+Never guess at a format from a filename or bank name alone — read the actual bytes. This applies even to a bank you already support: BOA's native per-account download (2026-07-28) turned out to be a completely different column layout from the existing aggregator `ExportData_BOA.csv`, despite an initial filename-based assumption that it was "the same format, just a wider date range." Always re-run this step for a re-download, not just a first-time source.
+
+Also cross-reference any account numbers/identifiers mentioned in the new file against `accounts.yaml` and the real account names already in the DB. A per-account download can reveal a real account you didn't know you were missing — one that only ever showed up indirectly as a transfer line item on another account's statement (confirmed real case: BOA `...1640`, a second checking account). Don't assume every account number in a new file maps to an existing one; confirm each mapping against transfer/payment cross-references in the data (matching dates + exact-opposite amounts across the two files) before wiring it into config. See the `stop_and_ask_on_data_surprises` memory.
 
 ## 2. Determine the sign convention — the step most likely to cause silent financial errors
 
@@ -33,6 +35,9 @@ Known issues so far, all confirmed in real data, not hypothetical:
 - **Fixed-width padding / repeated internal whitespace** (US Bank, Amex descriptions) — collapse with `re.sub(r"\s+", " ", ...)`.
 - **One file, multiple real accounts** (Bank of America mixes a credit card and a checking account via an `Account Name` column) — needs a `row_filter` in `accounts.yaml` and an `account_match_key` on the `ParsedRow`, not a single account mapping.
 - **Genuinely repeated real transactions** (Amex: two identical same-day/amount/description charges, one per cardholder on a shared card) — do NOT assume identical rows are duplicate-import artifacts. The dedupe hash (`compute_row_hashes` in `base.py`) already handles this via occurrence-indexing; don't reintroduce a simpler hash that would collapse these.
+- **Same institution, multiple real export formats** (BOA aggregator export vs. BOA's own native per-account download, 2026-07-28) — a bank you already support can hand you a structurally different file later (different download path, different tool). Treat it as a new source needing its own parser, not a variant of the existing one.
+- **A re-download's date range overlapping already-imported data in a *different* format defeats the dedupe hash** (BOA native re-download, 2026-07-28) — the hash includes `description`, and the same real transaction is worded differently across formats, so it won't be recognized as a duplicate. Don't trust dedupe across a format change: compare date ranges first, and manually trim the new file to the non-overlapping portion before import if the ranges overlap. (If the ranges don't overlap — as with a same-format gap-filling backfill — dedupe alone is fine.)
+- **A parser that has no raw-category column lands every row Uncategorized on import** (native BOA formats provide no `Category` column, unlike the aggregator export) — this isn't a parser bug, but it's a real, sizeable practical consequence worth surfacing to the user up front for a large backfill (264 transactions landed 100% uncategorized in the 2026-07-28 case) rather than letting them discover it later. Check `SELECT COUNT(*) FROM transactions WHERE category_id IS NULL` right after import and mention the count.
 
 Check the new file against every item on this list. If it has a new quirk not listed here, add it to this list once you've handled it — this file should grow with every new source.
 
@@ -52,6 +57,8 @@ Keep sign-flipping logic local to the new parser, even if it duplicates a line o
 ## 5. Add the config entry
 
 Add an entry to `backend/app/imports/accounts.yaml` mapping a filename-substring `match` to a `parser` name and one or more `accounts`. Use the real filename actually seen in `data/`. If the file mixes multiple real accounts (like BOA), give each account a `row_filter.account_name_contains` instead of a single unfiltered account.
+
+**Ordering matters:** `registry.match()` is first-match-wins substring matching, checked in file order. If the new source's real filenames happen to contain an existing, more generic `match` string (e.g. a new BOA native filename still contains `"ExportData_BOA"`), list the new, more specific entry *before* the existing generic one — otherwise it silently routes to the wrong parser and fails (or worse, partially parses) instead of erroring clearly. After editing, sanity-check every real filename in `data/` against `registry.match()` directly (`python -c "from app.imports.registry import match; print(match('<filename>'))"` for each) rather than assuming the new entry "obviously" wins.
 
 ## 6. Write a synthetic fixture and tests
 

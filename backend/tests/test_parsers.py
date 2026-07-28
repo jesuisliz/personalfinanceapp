@@ -6,6 +6,8 @@ import pytest
 from app.imports.amex import AmexParser
 from app.imports.base import compute_row_hashes
 from app.imports.boa import BoaParser
+from app.imports.boa_native_bank import BoaNativeBankParser
+from app.imports.boa_native_card import BoaNativeCardParser
 from app.imports.chase import ChaseParser
 from app.imports.us_bank import UsBankParser
 
@@ -76,6 +78,37 @@ def test_boa_account_match_key_distinguishes_accounts():
 def test_boa_uses_simple_description():
     rows = BoaParser().parse(read_fixture("boa_sample.csv"))
     assert rows[0].description == "Olive Garden"
+
+
+def test_boa_native_bank_skips_beginning_balance_row():
+    rows = BoaNativeBankParser().parse(read_fixture("boa_native_bank_sample.csv"))
+    assert len(rows) == 3  # 4 data rows minus the "Beginning balance" row
+
+
+def test_boa_native_bank_parses_comma_amount_and_signs():
+    rows = BoaNativeBankParser().parse(read_fixture("boa_native_bank_sample.csv"))
+    assert rows[0].date == date(2026, 1, 5)
+    assert rows[0].amount_cents == 25000
+    assert rows[1].amount_cents == -1208
+
+
+def test_boa_native_bank_has_no_account_match_key():
+    # Each native file is already scoped to one real account, unlike the
+    # aggregator export which mixes several accounts via Account Name.
+    rows = BoaNativeBankParser().parse(read_fixture("boa_native_bank_sample.csv"))
+    assert rows[0].account_match_key is None
+
+
+def test_boa_native_card_charge_is_negative_payment_is_positive():
+    rows = BoaNativeCardParser().parse(read_fixture("boa_native_card_sample.csv"))
+    assert rows[0].amount_cents == -10445
+    assert rows[1].amount_cents == 40028
+
+
+def test_boa_native_card_uses_payee_as_description():
+    rows = BoaNativeCardParser().parse(read_fixture("boa_native_card_sample.csv"))
+    assert rows[0].description == "IC* INSTACART*SUBSCRIP SAN FRANCISCOCA"
+    assert rows[0].date == date(2026, 1, 27)
 
 
 def test_us_bank_credit_is_positive():
