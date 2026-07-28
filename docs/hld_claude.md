@@ -153,11 +153,11 @@ Success criteria:
 - Every transaction can be assigned a category, either automatically (rule-based) or by hand. — confirmed.
 - Recategorizing a transaction is a simple, fast manual action — no need to re-import. — confirmed live in the UI.
 - A credit card payment made from a checking account nets to zero across the two accounts, not double-counted as an expense in one and ignored in the other. — confirmed via the real BOA $4,284.66 pair.
-- Internal transfers between your own accounts are identifiable and excluded from spending totals. — confirmed (`is_transfer` + "Transfers" category, both required — see Phase 3/4 notes below on why category alone isn't sufficient).
+- Internal transfers between your own accounts are identifiable and excluded from spending totals. — confirmed (`is_transfer` + a non-spending category, both required — see Phase 3/4 notes below on why category alone isn't sufficient). **Update 2026-07-28** (`lld_phase2_claude.md` §12): "Credit Card Payment" split out as its own category, distinct from "Transfers" (real account-to-account movement) at the user's request; the dashboard's non-spending exclusion generalized to cover both.
 
 ### Phase 3 — Dashboard: income vs. expense, spending by category, top merchants, trends, six-month summary
 
-**Status: complete** (2026-07-27), plus two user-requested additions beyond the original scope: an "Uncategorized only" filter on the Transactions tab, and click-to-drill-down from any category in the breakdown to its underlying transactions. No dedicated LLD was written for this phase (a gap the project noted and corrected starting with Phase 4) — see memory `phase3_status` for the full design record: `backend/app/dashboard/aggregates.py` + `backend/app/routers/dashboard.py`, `frontend/src/Dashboard.tsx`.
+**Status: complete** (2026-07-27), plus user-requested additions beyond the original scope: an "Uncategorized only" filter, and (2026-07-28) Category and Month filter dropdowns, on the Transactions tab; click-to-drill-down from any category in the breakdown to its underlying transactions. No dedicated LLD was written for this phase (a gap the project noted and corrected starting with Phase 4) — see memory `phase3_status` for the full design record: `backend/app/dashboard/aggregates.py` + `backend/app/routers/dashboard.py`, `frontend/src/Dashboard.tsx`. The Transactions-tab filters are pure client-side filtering in `frontend/src/App.tsx` (no backend changes) — consistent with how the existing Account/"Uncategorized only" filters already worked.
 
 Success criteria:
 - You can answer, from the dashboard alone and without doing mental math: "How much came in this month?" and "How much went out?" — confirmed (six-month summary stat tiles + monthly bar chart).
@@ -186,6 +186,18 @@ Success criteria (from `PROJECT_CONTEXT.md`'s Definition of Success):
 - Scenario analysis (e.g. "reduce dining by 25%") reflects a real, computed projection — not an LLM estimate. — confirmed: reuses Phase 4's `estimate_category_reduction_savings` unchanged (the $1,256.99/month dining average matched Phase 3/4's already-verified number exactly), composed onto the goal/runway figures via new `apply_scenario_to_*` functions, not a new or duplicated calculation.
 - The vacation planner is the same code path as a savings goal, not a separate feature, per the user's explicit scope decision — no vacation-specific code exists.
 - Full backend test suite: 114/114 passing; `tsc -b` + `oxlint` clean.
+
+### Phase 6 — Chat History Persistence
+
+**Status: designed, not yet built** (2026-07-28). Full design in `lld_phase6_claude.md`. Not an original `CLAUDE.md` roadmap item — a user-requested evolution of Phase 4's chatbot: today's chat history is in-memory only (frontend React state, lost on refresh), a deliberate Phase 4 scope-down. The user wants a ChatGPT/Claude-like experience: history that survives a page refresh, with multiple named conversations they can browse and switch between. Broken into 5 independently shippable, independently testable milestones (M1-M5) so each can be built, verified, and approved before the next starts, per the user's usual incremental-build preference.
+
+Key design decisions confirmed with the user before writing the LLD (all via `AskUserQuestion`, each accepted the recommended default):
+- The schema is designed for the full multi-conversation end state from milestone 1, even though the UI ships incrementally — avoids migrating the schema twice.
+- Each assistant message persists its supporting `tool_calls` JSON alongside the prose, not just the reply text — reopening a past conversation still shows the underlying data table, consistent with Phase 4's "every number visible, not just asserted" principle.
+- Conversation titles are the first user message, truncated — no extra LLM call, consistent with this project's "never use the model for something code can do directly."
+- Deleting a conversation is a hard delete (with a UI confirmation step as the safeguard) — simplest fit for a single-user local app.
+
+Success criteria: not yet applicable — no milestone has been built yet. See `lld_phase6_claude.md` for the per-milestone acceptance checks that will fill in this section as each ships.
 
 ## 7. Explicit Non-Goals (current phase)
 

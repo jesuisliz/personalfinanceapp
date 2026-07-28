@@ -28,6 +28,16 @@ const TABS = [
 
 type View = (typeof TABS)[number]["key"];
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function monthLabel(monthKey: string): string {
+  const [year, month] = monthKey.split("-");
+  return `${MONTH_NAMES[Number(month) - 1]} ${year}`;
+}
+
 function TransactionSummary({ txn, account }: { txn: Transaction; account: Account | undefined }) {
   return (
     <div className="text-sm">
@@ -47,12 +57,19 @@ export default function App() {
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [transferMatches, setTransferMatches] = useState<TransferMatch[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [merchantSearch, setMerchantSearch] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
   const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editingNoteValue, setEditingNoteValue] = useState("");
 
   function reload() {
     setLoading(true);
@@ -103,6 +120,17 @@ export default function App() {
     reload();
   }
 
+  function startEditingNote(txn: Transaction) {
+    setEditingNoteId(txn.id);
+    setEditingNoteValue(txn.note ?? "");
+  }
+
+  async function saveNote(txnId: number) {
+    await updateTransaction(txnId, { note: editingNoteValue.trim() || null });
+    setEditingNoteId(null);
+    reload();
+  }
+
   async function handleDetectTransfers() {
     setUploadStatus("Detecting transfers...");
     const found = await detectTransfers();
@@ -118,9 +146,22 @@ export default function App() {
   const accountById = new Map(accounts.map((a) => [a.id, a]));
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const transactionById = new Map(allTransactions.map((t) => [t.id, t]));
+  const availableMonths = Array.from(new Set(allTransactions.map((t) => t.date.slice(0, 7)))).sort(
+    (a, b) => (a < b ? 1 : -1)
+  );
+  const merchantSearchLower = merchantSearch.trim().toLowerCase();
+  const minAmountCents = minAmount.trim() === "" ? null : Math.round(Number(minAmount) * 100);
+  const maxAmountCents = maxAmount.trim() === "" ? null : Math.round(Number(maxAmount) * 100);
   const visibleTransactions = allTransactions
     .filter((t) => selectedAccountId === null || t.account_id === selectedAccountId)
-    .filter((t) => !uncategorizedOnly || t.category_id === null);
+    .filter((t) => !uncategorizedOnly || t.category_id === null)
+    .filter((t) => selectedCategoryId === null || t.category_id === selectedCategoryId)
+    .filter((t) => selectedMonth === null || t.date.slice(0, 7) === selectedMonth)
+    .filter(
+      (t) => merchantSearchLower === "" || (t.clean_description ?? t.description).toLowerCase().includes(merchantSearchLower)
+    )
+    .filter((t) => minAmountCents === null || Number.isNaN(minAmountCents) || t.amount_cents >= minAmountCents)
+    .filter((t) => maxAmountCents === null || Number.isNaN(maxAmountCents) || t.amount_cents <= maxAmountCents);
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -211,6 +252,73 @@ export default function App() {
                 </select>
               </label>
 
+              <label className="flex items-center gap-2">
+                <span className="font-medium text-ink-secondary text-sm">Category</span>
+                <select
+                  className={inputClass}
+                  value={selectedCategoryId ?? "all"}
+                  onChange={(e) => setSelectedCategoryId(e.target.value === "all" ? null : Number(e.target.value))}
+                >
+                  <option value="all">All categories</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-2">
+                <span className="font-medium text-ink-secondary text-sm">Month</span>
+                <select
+                  className={inputClass}
+                  value={selectedMonth ?? "all"}
+                  onChange={(e) => setSelectedMonth(e.target.value === "all" ? null : e.target.value)}
+                >
+                  <option value="all">All months</option>
+                  {availableMonths.map((m) => (
+                    <option key={m} value={m}>
+                      {monthLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-2">
+                <span className="font-medium text-ink-secondary text-sm">Merchant</span>
+                <input
+                  type="text"
+                  className={inputClass}
+                  placeholder="Search merchant..."
+                  value={merchantSearch}
+                  onChange={(e) => setMerchantSearch(e.target.value)}
+                />
+              </label>
+
+              <label className="flex items-center gap-2">
+                <span className="font-medium text-ink-secondary text-sm">Amount</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={`${inputClass} w-24`}
+                  placeholder="Min"
+                  value={minAmount}
+                  onChange={(e) => setMinAmount(e.target.value)}
+                />
+                <span className="text-ink-muted">&ndash;</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={`${inputClass} w-24`}
+                  placeholder="Max"
+                  value={maxAmount}
+                  onChange={(e) => setMaxAmount(e.target.value)}
+                />
+                <span className="text-ink-muted text-xs italic" title="Amounts are negative for expenses, positive for income/refunds — e.g. -100 to -50 for expenses between $50 and $100">
+                  expenses are negative
+                </span>
+              </label>
+
               <label className="flex items-center gap-2 cursor-pointer text-sm">
                 <input
                   type="checkbox"
@@ -252,6 +360,7 @@ export default function App() {
                       <th className="p-2 font-medium">Account</th>
                       <th className="p-2 font-medium">Description</th>
                       <th className="p-2 font-medium">Category</th>
+                      <th className="p-2 font-medium">Note</th>
                       <th className="p-2 font-medium text-right">Amount</th>
                     </tr>
                   </thead>
@@ -300,6 +409,29 @@ export default function App() {
                           </select>
                           {t.category_id && !categoryById.has(t.category_id) && (
                             <span className="text-critical text-xs ml-1">unknown category</span>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          {editingNoteId === t.id ? (
+                            <input
+                              autoFocus
+                              className={`${inputClass} w-full`}
+                              value={editingNoteValue}
+                              onChange={(e) => setEditingNoteValue(e.target.value)}
+                              onBlur={() => saveNote(t.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveNote(t.id);
+                                if (e.key === "Escape") setEditingNoteId(null);
+                              }}
+                            />
+                          ) : (
+                            <span
+                              className={`cursor-pointer hover:text-accent transition-colors ${t.note ? "text-ink-secondary" : "text-ink-muted italic"}`}
+                              title="Click to add a note"
+                              onClick={() => startEditingNote(t)}
+                            >
+                              {t.note || "Add note..."}
+                            </span>
                           )}
                         </td>
                         <td className={`p-2 text-right whitespace-nowrap ${t.amount_cents < 0 ? "text-critical" : "text-good"}`}>

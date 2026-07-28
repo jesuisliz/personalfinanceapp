@@ -36,7 +36,7 @@ def make_category(session, name):
 _hash_counter = 0
 
 
-def make_txn(session, account_id, amount_cents, txn_date, description="txn", category_id=None):
+def make_txn(session, account_id, amount_cents, txn_date, description="txn", category_id=None, is_transfer=False):
     global _hash_counter
     _hash_counter += 1
     txn = Transaction(
@@ -45,6 +45,7 @@ def make_txn(session, account_id, amount_cents, txn_date, description="txn", cat
         description=description,
         amount_cents=amount_cents,
         category_id=category_id,
+        is_transfer=is_transfer,
         source_row_hash=f"hash-{_hash_counter}",
     )
     session.add(txn)
@@ -173,6 +174,21 @@ def test_dispatch_get_category_transactions():
     assert result == [{"date": "2026-07-01", "description": "Olive Garden", "amount_cents": -1000}]
 
 
+def test_dispatch_get_category_transactions_all_months_when_month_omitted():
+    """Regression test: asking about a category spanning many months used to force
+    one tool call per month, risking the 5-round cap on a long enough history.
+    Omitting `month` entirely must return everything in one call."""
+    session = make_session()
+    account = make_account(session)
+    loan = make_category(session, "Auto Loan")
+    make_txn(session, account.id, -80000, date(2026, 1, 12), description="Loan Jan", category_id=loan.id)
+    make_txn(session, account.id, -80000, date(2026, 7, 10), description="Loan Jul", category_id=loan.id)
+
+    result = dispatch_tool_call(session, "get_category_transactions", {"category_name": "Auto Loan"})
+
+    assert {r["description"] for r in result} == {"Loan Jan", "Loan Jul"}
+
+
 def test_dispatch_get_category_transactions_uncategorized():
     session = make_session()
     account = make_account(session)
@@ -183,6 +199,41 @@ def test_dispatch_get_category_transactions_uncategorized():
     )
 
     assert result == [{"date": "2026-07-01", "description": "Mystery", "amount_cents": -1000}]
+
+
+def test_dispatch_get_category_transactions_for_credit_card_payment_bypasses_spending_exclusion():
+    """Regression test: get_category_transactions used to always return [] for
+    "Credit Card Payment"/"Transfers" because it drilled into category_breakdown's
+    spending total, and those categories are deliberately excluded from that total
+    entirely. It must route to a direct lookup instead for these two category names,
+    including confirmed is_transfer pairs a normal category drill-down would hide."""
+    session = make_session()
+    account = make_account(session)
+    payments = make_category(session, "Credit Card Payment")
+    make_txn(
+        session, account.id, -20000, date(2026, 7, 1), description="Payment to Card",
+        category_id=payments.id, is_transfer=True,
+    )
+
+    result = dispatch_tool_call(
+        session, "get_category_transactions", {"month": "2026-07", "category_name": "Credit Card Payment"}
+    )
+
+    assert result == [{"date": "2026-07-01", "description": "Payment to Card", "amount_cents": -20000}]
+
+
+def test_dispatch_get_category_transactions_dining_still_excludes_transfers():
+    """Normal spending categories must keep the existing behavior unchanged."""
+    session = make_session()
+    account = make_account(session)
+    dining = make_category(session, "Dining & Drinks")
+    make_txn(session, account.id, -1000, date(2026, 7, 1), category_id=dining.id, is_transfer=True)
+
+    result = dispatch_tool_call(
+        session, "get_category_transactions", {"month": "2026-07", "category_name": "Dining & Drinks"}
+    )
+
+    assert result == []
 
 
 def test_dispatch_get_category_trends():

@@ -8,28 +8,31 @@ from app.models import Category, Transaction
 from app.schemas import CategoryBreakdownOut, MerchantBreakdownOut, MonthlySummaryOut, SavingsEstimateOut
 
 UNCATEGORIZED_LABEL = "Uncategorized"
-TRANSFERS_CATEGORY_NAME = "Transfers"
+# Categories that represent internal money movement rather than real income or
+# spending: transfers between the user's own accounts, and credit card payments
+# (paying off a card isn't spending - the spending was already counted when the
+# purchases happened).
+NON_SPENDING_CATEGORY_NAMES = ("Transfers", "Credit Card Payment")
 
 
 def _load_real_transactions(session: Session, account_id: int | None) -> list[Transaction]:
-    """All transactions excluding transfers: confirmed is_transfer pairs, and anything
-    categorized "Transfers" even if it hasn't been matched to a counterpart yet (an ATM
-    withdrawal or CC payment is internal money movement, not spending or income, whether
-    or not its confirmed pair has been found)."""
-    transfers_category = session.execute(
-        select(Category).where(Category.name == TRANSFERS_CATEGORY_NAME)
-    ).scalar_one_or_none()
+    """All transactions excluding internal money movement: confirmed is_transfer pairs,
+    and anything categorized as one of NON_SPENDING_CATEGORY_NAMES even if it hasn't been
+    matched to a counterpart yet (an ATM withdrawal or CC payment is internal money
+    movement, not spending or income, whether or not its confirmed pair has been found)."""
+    non_spending_category_ids = {
+        c.id
+        for c in session.execute(
+            select(Category).where(Category.name.in_(NON_SPENDING_CATEGORY_NAMES))
+        ).scalars().all()
+    }
 
     stmt = select(Transaction)
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
     transactions = session.execute(stmt).scalars().all()
 
-    return [
-        t
-        for t in transactions
-        if not t.is_transfer and (transfers_category is None or t.category_id != transfers_category.id)
-    ]
+    return [t for t in transactions if not t.is_transfer and t.category_id not in non_spending_category_ids]
 
 
 def latest_transaction_date(session: Session, account_id: int | None) -> date | None:
@@ -109,15 +112,37 @@ def category_breakdown(session: Session, month: str, account_id: int | None) -> 
     return rows
 
 
+def non_spending_category_transactions(
+    session: Session, month: str | None, account_id: int | None, category_id: int
+) -> list[Transaction]:
+    """The transactions in a NON_SPENDING_CATEGORY_NAMES category (Transfers, Credit
+    Card Payment), shown directly. These categories are excluded from
+    `category_breakdown` entirely (see `_load_real_transactions`), so they have no
+    spending total to drill into - unlike `category_transactions`, this includes
+    both directions of money movement, not just the expense side. `month=None`
+    returns every transaction in the category across all time in a single call,
+    rather than requiring one call per month."""
+    stmt = select(Transaction).where(Transaction.category_id == category_id)
+    if account_id is not None:
+        stmt = stmt.where(Transaction.account_id == account_id)
+    transactions = session.execute(stmt).scalars().all()
+
+    matches = [t for t in transactions if month is None or _month_key(t.date) == month]
+    matches.sort(key=lambda t: t.date, reverse=True)
+    return matches
+
+
 def category_transactions(
-    session: Session, month: str, account_id: int | None, category_id: int | None, uncategorized: bool
+    session: Session, month: str | None, account_id: int | None, category_id: int | None, uncategorized: bool
 ) -> list[Transaction]:
     """The exact set of expense transactions that fed one category's total in
     `category_breakdown`, for drill-down display. Same filters, same month scope,
-    just narrowed to one category instead of grouped across all of them."""
+    just narrowed to one category instead of grouped across all of them. `month=None`
+    returns every matching transaction across all time in a single call, rather than
+    requiring one call per month."""
     matches = []
     for t in _load_real_transactions(session, account_id):
-        if t.amount_cents >= 0 or _month_key(t.date) != month:
+        if t.amount_cents >= 0 or (month is not None and _month_key(t.date) != month):
             continue
         if uncategorized:
             if t.category_id is not None:

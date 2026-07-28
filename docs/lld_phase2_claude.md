@@ -25,9 +25,15 @@ Seed categories, and the default mapping from every raw bank category actually o
 | Fees & Adjustments | Chase `Fees & Adjustments`, BOA `Refunds/Adjustments`, `Other Expenses` |
 | Income | BOA `Paychecks/Salary` |
 | Interest & Investments | BOA `Interest`, `Securities Trades`, `Rewards` |
-| Transfers | BOA `Transfers`, `Savings`, `Credit Card Payments`, `Loans`, `Checks`, `ATM/Cash Withdrawals`, **Chase `Payment` (synthesized, see §2)** |
+| Transfers | BOA `Transfers`, `Savings`, `Checks`, `ATM/Cash Withdrawals` — account-to-account movement of the user's own money |
+| Credit Card Payment | BOA `Credit Card Payments`, **Chase `Payment` (synthesized, see §2)** — paying off a card, not spending (see §12) |
+| RSU/Stock Sales | no raw-category mapping; assigned via a merchant rule matching the brokerage transfer description (see §12) |
+| Mortgage | no raw-category mapping; assigned via a merchant rule matching a specific recurring Xoom remittance (see §13) |
+| Auto Loan | BOA `Loans` **for one specific account only** (an account-scoped `CategoryRule`, see §13) — every other account's `Loans` raw category still falls through to Transfers |
 
 US Bank and American Express provide no raw category at all — their transactions start uncategorized (`category_id = NULL`) until a rule or manual edit assigns one. This is correct behavior, not a gap: we never guess a category from nothing.
+
+**2026-07-28 updates:** the `Transfers` row above reflects the *original* Phase 2 taxonomy, since narrowed twice more (§12: Credit Card Payment; §13: Mortgage and Auto Loan). Category count as of §13: **20**. See §12/§13 for why and for the current, authoritative mapping.
 
 ## 2. Chase `Type=Payment` → synthesized raw category
 
@@ -52,7 +58,8 @@ class CategoryRule(Base):
     institution: str          # scopes the rule to one bank's raw category vocabulary
     raw_category: str         # exact match against Transaction.raw_category
     category_id: int (FK categories.id)
-    __table_args__ = (UniqueConstraint("institution", "raw_category"),)
+    account_id: int | None (FK accounts.id, nullable)  # added 2026-07-28, see §12
+    __table_args__ = (UniqueConstraint("institution", "raw_category", "account_id"),)
 
 class MerchantRule(Base):
     __tablename__ = "merchant_rules"
@@ -76,8 +83,9 @@ class TransferMatch(Base):
 
 Priority, highest wins:
 1. `transaction.category_id` already set (manual edit, or a prior rule application) — never overwritten by re-running rule application.
-2. `category_rules` match on `(account.institution, transaction.raw_category)`.
-3. Otherwise `NULL` (uncategorized) — never guessed.
+2. `category_rules` match on `(account_id, transaction.raw_category)` — an account-specific rule (§12).
+3. `category_rules` match on `(account.institution, transaction.raw_category)` — the institution-wide rule.
+4. Otherwise `NULL` (uncategorized) — never guessed.
 
 Rule application is idempotent: it only sets `category_id` on transactions where it is currently `NULL`, so it's safe to re-run after every import without clobbering manual edits.
 
@@ -155,3 +163,33 @@ The dedupe hash (`compute_row_hashes`, `lld_claude.md` §5.2) is built from `acc
 This was caught during Phase 2 verification (querying for Chase rows with `NULL raw_category` found exactly the 15 expected `Payment` rows still unfixed) and repaired with a one-time backfill: re-parse the real files with the fixed parser, match each parsed row to its already-stored counterpart by the same dedupe hash, and update `raw_category` wherever it differs. This is safe specifically *because* it matches on the same hash used for dedupe — it can't accidentally update the wrong row.
 
 **Generalizable lesson:** any future change to a parser's *non-hashed* fields (`raw_category`, `memo`, `posted_date`, description cleanup logic, etc.) on a parser that already has real imported data needs this same reconciliation step — re-importing alone will not apply the fix retroactively. A change to a *hashed* field (date, amount, or description) doesn't have this problem, but for a different reason: it would change the hash entirely, which would insert a brand-new duplicate row instead of updating the old one — an even worse outcome, requiring its own manual cleanup. Either way, changing a parser after it has real production data behind it needs a deliberate reconciliation pass, not just a re-import.
+
+## 12. 2026-07-28 Update — Credit Card Payment split from Transfers, RSU/Stock Sales added, account-aware CategoryRule
+
+Three related category-taxonomy changes made in direct response to the user reviewing real categorized data and finding it insufficiently specific:
+
+**Credit Card Payment split out of Transfers.** The user wanted to distinguish "these are savings transfers between my own accounts" from "these are me paying off a credit card" — both were previously lumped under `Transfers`. New category `Credit Card Payment` (category_id 18 in the live DB). Reclassified 67 existing transactions by direct classification (not guessed): every transaction physically on a credit-card-type account, every confirmed-transfer-pair counterpart of one, and every remaining transaction whose raw category or existing merchant-rule label already identified it as a card payment (Discover, Wells Fargo, Best Buy, J.Crew — cards not tracked as accounts in this system, so no confirmed pair exists for these). A payment against an unrelated *loan* (raw category `Loans`, e.g. the vehicle-loan `Payment to Bank of America` rows) was deliberately left in `Transfers`, not reclassified — it isn't a credit card, and this was out of the scope the user asked for. The 6 existing card-payment merchant rules (`AMERICAN EXPRESS`, `BANK OF AMERICA CREDIT CARD`, `CHASE CREDIT CRD`, `DISCOVER CARD`, `US BANK CREDIT CARD`, `WELLS FARGO CARD`) and the BofA `Credit Card Payments`/Chase `Payment` category rules were repointed from `Transfers` to `Credit Card Payment` so future imports land correctly without manual cleanup.
+
+**RSU/Stock Sales added.** A `"Online Banking Transfer From Brk 2454"` transaction (RSU-sale proceeds landing in checking) had been silently swallowed by BofA's raw `Transfers` category, which excludes it from income entirely even though there's no real transfer counterpart in this system (the brokerage account isn't tracked here) — it's real income, just not payroll. New category `RSU/Stock Sales` (category_id 17), plus a merchant rule matching `"Brk 2454"` so future proceeds land here automatically instead of vanishing from the income picture.
+
+**Account-aware `CategoryRule` (the `account_id` column, §3/§4).** Discovered while fixing the two categories above: BofA's own export tags the `BOA Customized Cash Rewards` card's *own payments received* with raw category `Refunds/Adjustments` — the same raw category BofA uses elsewhere for genuine refunds (`Fees & Adjustments`). An institution-wide `(institution, raw_category) → category` rule can't express "except on this one account," so `CategoryRule` gained a nullable `account_id`: when set, it overrides the institution-wide rule for that account only (§4's resolution order). One account-specific rule added: `(Bank of America, Refunds/Adjustments, account=BOA Customized Cash Rewards) → Credit Card Payment`, leaving the institution-wide `Refunds/Adjustments → Fees & Adjustments` rule intact for every other BofA account's genuine refunds.
+
+**Bug this surfaced, fixed same session:** `seed_categories()` (runs on every app startup) looked up an existing rule by `(institution, raw_category)` alone. Once an account-specific rule shared that pair with the institution-wide seeded rule, that lookup returned two rows and crashed the app at startup (`sqlalchemy.exc.MultipleResultsFound`). Fixed by scoping the seed's own existing-rule lookup to `account_id IS NULL` — seeding only ever manages institution-wide rules, so it should never see (or collide with) an account-specific one. Regression test: `test_seed_is_safe_alongside_account_specific_rule` (`test_categories.py`).
+
+**Dashboard/chat exclusion logic generalized.** `app/dashboard/aggregates.py`'s `_load_real_transactions` (Phase 3, §6 of this doc) excluded transactions by category name `"Transfers"` only. Generalized to a `NON_SPENDING_CATEGORY_NAMES` tuple now including `"Credit Card Payment"` too — otherwise the 17 card payments with no confirmed transfer pair would have started counting as real expenses the moment the category was created. This in turn broke the chatbot's `get_category_transactions` tool for these two categories specifically: it drills into a category's `category_breakdown` total, and a non-spending category has no such total by design, so it always returned `[]`. Fixed with a new `non_spending_category_transactions()` function (direct lookup, both money directions, no spending exclusion) that `chat/tools.py` routes to specifically for `"Transfers"`/`"Credit Card Payment"`; every other category keeps the original behavior unchanged. See `lld_phase4_claude.md` for the chat-side narrative and the live-validation numbers.
+
+**Migration note:** `category_rules`'s unique constraint changed from `(institution, raw_category)` to `(institution, raw_category, account_id)` — this required a SQLite table rebuild (create-new/copy/drop/rename), not just `ALTER TABLE ADD COLUMN`, since SQLite can't add a column to an existing composite unique constraint in place.
+
+Verified: full backend suite 128/128 (7 new regression tests added this session — 2 in `test_categories.py`, 3 in `test_dashboard.py`, 2 in `test_chat.py`); frontend `npm run build` clean; live chatbot re-query independently SQL-verified exact match (10/10 transactions, all cents-to-dollars conversions correct) after the fix, versus 3/10 before it and 0/10 immediately after the dashboard-exclusion fix alone (the intermediate, still-wrong state that motivated the chat-side fix).
+
+## 13. 2026-07-28, later still — three merchant-level corrections, plus a second account-scoped `CategoryRule`
+
+**Barnes & Noble** was scattered across three categories (Shopping/Entertainment/Dining & Drinks) purely because of which raw bank category each individual purchase happened to carry — not a deliberate distinction (a café purchase vs. a book vs. a game all landed differently by accident). Consolidated all 17 transactions to **Shopping** via a new merchant rule; the small in-store café spend is folded in rather than split out, per the user's explicit call ("hard to figure out if it's the drinks if i bought a lego").
+
+**Xoom → Mortgage.** 11 `Transfer to Xoom` transactions (~$7,900 across the data) were categorized as `Transfers`, so silently excluded from expense totals entirely — money that looked like it vanished. The user clarified these are real payments for a condo in the Philippines they don't live in themselves. New category **Mortgage**; existing `XOOM` merchant rule repointed to it.
+
+**Vehicle loan → Auto Loan, plus a second dual-source-format gap.** The $800/month vehicle loan payment (7 months, Jan-Jul) had two separate problems, found while investigating a user report that the label was "correct for Jan-Apr, wrong for May-Jul":
+1. **Description bug**: one BofA source file (`ExportData_BOA.csv`, the older aggregator export) carries *two* description columns per row — `Original Description` (`BANK OF AMERICA VEHICLE LOAN Bill Payment`) and an aggregator-simplified `Simple Description` (`Payment to Bank of America`). The BOA parser (`app/imports/boa.py`) uses `Simple Description` — the right call for the other 216 differing rows in that file (systematically diffed and keyword-searched for LOAN/MORTGAGE/TAX/IRS/etc. to confirm no other merchant has this problem), but wrong for this one, where it threw away the only detail that mattered. Fixed with a merchant rule mapping `"Payment to Bank of America"` → the fuller label.
+2. **Category bug, found via the same investigation**: even after the label was fixed, the 7 payments were split between `Fees & Adjustments` (Jan-Apr, an old assignment predating this session) and `Transfers` (May-Jul) — neither correct for a recurring debt payment. New category **Auto Loan**; all 7 reclassified. Repointing the `"Payment to Bank of America"` merchant rule's `category_id` to Auto Loan looked sufficient but wasn't: the institution-wide `CategoryRule` `(Bank of America, Loans) → Transfers` (rule id 37, pre-existing) still runs *before* merchant rules for any row with a populated `raw_category`, so a future aggregator-format import of this same payment (`raw_category="Loans"`) would have kept landing in Transfers — only its clean_description would have been fixed, not its category. Same account-scoping mechanism as §12's BofA Cash Rewards fix: added `(Bank of America, Loans, account_id=<BOA Interest Checking>) → Auto Loan`, confirmed no other account ever uses BofA's `Loans` raw category (so this can't misfire elsewhere), and verified live by resetting a real transaction's `category_id` to `NULL`, re-running `apply_category_rules`, confirming it resolved to Auto Loan, then restoring the original value.
+
+Category count as of this section: **20**. Full test suite still 132/132 (4 more regression tests added since §12: `test_dispatch_get_category_transactions_all_months_when_month_omitted` and its `test_dashboard.py` counterparts — see `lld_phase4_claude.md` §9 for why "all months" needed its own fix, a related but separate chatbot issue found the same day).

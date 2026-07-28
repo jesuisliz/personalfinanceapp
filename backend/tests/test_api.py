@@ -145,6 +145,25 @@ def test_patch_transaction_sets_clean_description_and_is_transfer():
     assert resp.json()["is_transfer"] is True
 
 
+def test_patch_transaction_sets_note():
+    client = make_client()
+    client.post(
+        "/imports",
+        files={"file": ("Chase3403_Activity_20260726.csv", read_fixture("chase_sample.csv"), "text/csv")},
+    )
+    txn_id = client.get("/transactions").json()[0]["id"]
+    assert client.get("/transactions").json()[0]["note"] is None
+
+    resp = client.patch(f"/transactions/{txn_id}", json={"note": "Sent for my sister, not mortgage"})
+    assert resp.status_code == 200
+    assert resp.json()["note"] == "Sent for my sister, not mortgage"
+
+    # Clearing it back to null must also work.
+    resp = client.patch(f"/transactions/{txn_id}", json={"note": None})
+    assert resp.status_code == 200
+    assert resp.json()["note"] is None
+
+
 def test_duplicate_category_name_returns_400():
     client = make_client()
     client.post("/categories", json={"name": "Dining"})

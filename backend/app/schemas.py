@@ -26,12 +26,14 @@ class TransactionOut(BaseModel):
     category_id: int | None
     clean_description: str | None
     is_transfer: bool
+    note: str | None
 
 
 class TransactionUpdate(BaseModel):
     category_id: int | None = None
     clean_description: str | None = None
     is_transfer: bool | None = None
+    note: str | None = None
 
 
 class ImportSummaryOut(BaseModel):

@@ -19,6 +19,7 @@ export interface Transaction {
   category_id: number | null;
   clean_description: string | null;
   is_transfer: boolean;
+  note: string | null;
 }
 
 export interface Category {
@@ -141,7 +142,7 @@ export async function fetchTransactions(accountId: number | null): Promise<Trans
 
 export async function updateTransaction(
   id: number,
-  updates: { category_id?: number | null; clean_description?: string | null; is_transfer?: boolean }
+  updates: { category_id?: number | null; clean_description?: string | null; is_transfer?: boolean; note?: string | null }
 ): Promise<Transaction> {
   const res = await fetch(`${API_BASE}/transactions/${id}`, {
     method: "PATCH",

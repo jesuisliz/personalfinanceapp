@@ -2,11 +2,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.dashboard.aggregates import (
+    NON_SPENDING_CATEGORY_NAMES,
     category_breakdown,
     category_transactions,
     category_trends,
     estimate_category_reduction_savings,
     monthly_summary,
+    non_spending_category_transactions,
     top_merchants,
 )
 from app.models import Category, SavingsGoal
@@ -87,15 +89,23 @@ def build_tool_schemas(session: Session) -> list[dict]:
             "type": "function",
             "function": {
                 "name": "get_category_transactions",
-                "description": "The individual transactions behind one category's total for a single month.",
+                "description": (
+                    "The individual transactions in one category. Pass `month` for a single "
+                    "calendar month, or omit it entirely to get every transaction in that "
+                    "category across all time in one call - do this whenever the question spans "
+                    "multiple months or 'all months', rather than calling this once per month."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "month": {"type": "string", "description": "Calendar month as YYYY-MM"},
+                        "month": {
+                            "type": ["string", "null"],
+                            "description": "Calendar month as YYYY-MM, or omit/null for all-time",
+                        },
                         "category_name": {"type": "string", "enum": category_names},
                         "account_id": {"type": ["integer", "null"]},
                     },
-                    "required": ["month", "category_name"],
+                    "required": ["category_name"],
                 },
             },
         },
@@ -202,7 +212,11 @@ def dispatch_tool_call(session: Session, name: str, arguments: dict) -> dict | l
         category_name = arguments["category_name"]
         uncategorized = category_name == UNCATEGORIZED_NAME
         category_id = resolve_category_id(session, category_name)
-        rows = category_transactions(session, arguments["month"], account_id, category_id, uncategorized)
+        month = arguments.get("month")
+        if category_name in NON_SPENDING_CATEGORY_NAMES:
+            rows = non_spending_category_transactions(session, month, account_id, category_id)
+        else:
+            rows = category_transactions(session, month, account_id, category_id, uncategorized)
         return [
             {
                 "date": t.date.isoformat(),

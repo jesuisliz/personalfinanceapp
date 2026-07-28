@@ -9,6 +9,7 @@ from app.dashboard.aggregates import (
     category_trends,
     estimate_category_reduction_savings,
     monthly_summary,
+    non_spending_category_transactions,
     top_merchants,
 )
 from app.db import Base
@@ -163,6 +164,18 @@ def test_category_breakdown_excludes_transfers():
     assert result == []
 
 
+def test_category_breakdown_excludes_credit_card_payment():
+    session = make_session()
+    account = make_account(session)
+    payments = make_category(session, "Credit Card Payment")
+    make_txn(session, account.id, -50000, date(2026, 7, 1), category_id=payments.id)
+    make_txn(session, account.id, -1000, date(2026, 7, 1), is_transfer=True)
+
+    result = category_breakdown(session, "2026-07", account_id=None)
+
+    assert result == []
+
+
 def test_category_breakdown_sorted_descending_and_scoped_to_month():
     session = make_session()
     account = make_account(session)
@@ -218,6 +231,23 @@ def test_category_transactions_returns_only_matching_category_and_month():
     assert [t.id for t in result] == [a.id]
 
 
+def test_category_transactions_all_time_when_month_omitted():
+    """Regression test: a category spanning many months (e.g. a 7-month loan payment
+    history) used to require one tool call per month, which could exceed the chatbot's
+    tool-call round cap and silently return only a partial answer. month=None must
+    return every matching transaction across all time in a single call instead."""
+    session = make_session()
+    account = make_account(session)
+    dining = make_category(session, "Dining & Drinks")
+    a = make_txn(session, account.id, -1000, date(2026, 1, 1), category_id=dining.id)
+    b = make_txn(session, account.id, -2000, date(2026, 7, 1), category_id=dining.id)
+    make_txn(session, account.id, -3000, date(2026, 7, 2), category_id=None)  # different category, excluded
+
+    result = category_transactions(session, None, account_id=None, category_id=dining.id, uncategorized=False)
+
+    assert {t.id for t in result} == {a.id, b.id}
+
+
 def test_category_transactions_uncategorized_flag():
     session = make_session()
     account = make_account(session)
@@ -254,6 +284,54 @@ def test_category_transactions_excludes_transfers():
     result = category_transactions(session, "2026-07", account_id=None, category_id=dining.id, uncategorized=False)
 
     assert result == []
+
+
+def test_non_spending_category_transactions_includes_both_directions():
+    """Unlike category_transactions, this must show a category like "Credit Card
+    Payment" or "Transfers" directly - including confirmed is_transfer pairs and
+    positive (incoming) amounts - since those categories have no spending total in
+    category_breakdown for a caller to be consistent with."""
+    session = make_session()
+    account = make_account(session)
+    payments = make_category(session, "Credit Card Payment")
+    outgoing = make_txn(
+        session, account.id, -20000, date(2026, 7, 5), description="Payment to Card", category_id=payments.id,
+        is_transfer=True,
+    )
+    incoming = make_txn(
+        session, account.id, 20000, date(2026, 7, 5), description="Card Payment Received", category_id=payments.id,
+        is_transfer=True,
+    )
+    make_txn(session, account.id, -500, date(2026, 6, 1), category_id=payments.id)  # different month, excluded
+
+    result = non_spending_category_transactions(session, "2026-07", account_id=None, category_id=payments.id)
+
+    assert {t.id for t in result} == {outgoing.id, incoming.id}
+
+
+def test_non_spending_category_transactions_scoped_by_account():
+    session = make_session()
+    checking = make_account(session, "Checking")
+    savings = make_account(session, "Savings")
+    payments = make_category(session, "Credit Card Payment")
+    checking_txn = make_txn(session, checking.id, -20000, date(2026, 7, 5), category_id=payments.id)
+    make_txn(session, savings.id, 20000, date(2026, 7, 5), category_id=payments.id)
+
+    result = non_spending_category_transactions(session, "2026-07", account_id=checking.id, category_id=payments.id)
+
+    assert [t.id for t in result] == [checking_txn.id]
+
+
+def test_non_spending_category_transactions_all_time_when_month_omitted():
+    session = make_session()
+    account = make_account(session)
+    payments = make_category(session, "Credit Card Payment")
+    a = make_txn(session, account.id, -20000, date(2026, 1, 5), category_id=payments.id)
+    b = make_txn(session, account.id, -20000, date(2026, 7, 5), category_id=payments.id)
+
+    result = non_spending_category_transactions(session, None, account_id=None, category_id=payments.id)
+
+    assert {t.id for t in result} == {a.id, b.id}
 
 
 def test_category_trends_returns_one_breakdown_per_trailing_month():

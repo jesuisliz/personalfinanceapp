@@ -27,12 +27,17 @@ class Category(Base):
 
 class CategoryRule(Base):
     __tablename__ = "category_rules"
-    __table_args__ = (UniqueConstraint("institution", "raw_category"),)
+    __table_args__ = (UniqueConstraint("institution", "raw_category", "account_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     institution: Mapped[str] = mapped_column(String, nullable=False)
     raw_category: Mapped[str] = mapped_column(String, nullable=False)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    # When set, this rule overrides the institution-wide mapping for just this one
+    # account - needed when one account's raw export reuses a raw_category (e.g.
+    # BofA's "Refunds/Adjustments") for something that means something different
+    # on that particular account than it does elsewhere at the same institution.
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
 
 
 class MerchantRule(Base):
@@ -60,6 +65,8 @@ class Transaction(Base):
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
     clean_description: Mapped[str | None] = mapped_column(String, nullable=True)
     is_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Free-form, user-entered only - distinct from `memo`, which is bank-supplied at import time.
+    note: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class TransferMatch(Base):

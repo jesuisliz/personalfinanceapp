@@ -7,6 +7,10 @@ from app.models import Account, CategoryRule, MerchantRule, Transaction
 def apply_category_rules(session: Session) -> int:
     """Assign category_id to transactions that don't have one yet, based on
     (account.institution, transaction.raw_category) matching a CategoryRule.
+    A rule scoped to a specific account_id takes priority over an
+    institution-wide rule for the same raw_category, since one account can
+    reuse a raw_category to mean something different than it does elsewhere
+    at the same institution.
 
     Never overwrites a transaction that already has a category_id — manual
     edits and prior rule applications are never clobbered, so this is safe to
@@ -20,14 +24,23 @@ def apply_category_rules(session: Session) -> int:
         .where(Transaction.category_id.is_(None), Transaction.raw_category.is_not(None))
     ).all()
 
-    rules = {
+    all_rules = session.execute(select(CategoryRule)).scalars().all()
+    account_rules = {
+        (rule.account_id, rule.raw_category): rule.category_id
+        for rule in all_rules
+        if rule.account_id is not None
+    }
+    institution_rules = {
         (rule.institution, rule.raw_category): rule.category_id
-        for rule in session.execute(select(CategoryRule)).scalars().all()
+        for rule in all_rules
+        if rule.account_id is None
     }
 
     updated = 0
     for transaction, institution in uncategorized:
-        category_id = rules.get((institution, transaction.raw_category))
+        category_id = account_rules.get((transaction.account_id, transaction.raw_category))
+        if category_id is None:
+            category_id = institution_rules.get((institution, transaction.raw_category))
         if category_id is not None:
             transaction.category_id = category_id
             updated += 1

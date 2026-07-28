@@ -80,10 +80,14 @@ def seed_categories(session: Session) -> None:
             session.flush()
 
         for institution, raw_category in mappings:
+            # Seeding only ever manages institution-wide rules (account_id IS NULL) -
+            # an account-specific override for the same (institution, raw_category)
+            # is a separate row and must not be mistaken for this one, or vice versa.
             existing_rule = session.execute(
                 select(CategoryRule).where(
                     CategoryRule.institution == institution,
                     CategoryRule.raw_category == raw_category,
+                    CategoryRule.account_id.is_(None),
                 )
             ).scalar_one_or_none()
             if existing_rule is None:
