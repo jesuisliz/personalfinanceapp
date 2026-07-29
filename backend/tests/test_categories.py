@@ -3,10 +3,10 @@ from datetime import date
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.categories.apply import apply_category_rules
+from app.categories.apply import apply_category_rules, apply_merchant_rules
 from app.categories.seed import SEED_TAXONOMY, seed_categories
 from app.db import Base
-from app.models import Account, Category, CategoryRule, Transaction
+from app.models import Account, Category, CategoryRule, MerchantRule, Transaction
 
 
 def make_session():
@@ -166,3 +166,42 @@ def test_seed_is_safe_alongside_account_specific_rule():
     ).scalars().all()
     assert len(rules) == 2
     assert {r.category_id for r in rules} == {fees_rule.category_id, payments.id}
+
+
+def test_merchant_rule_wins_over_raw_category_when_applied_first():
+    """A bank's native export can supply its own generic raw_category (e.g.
+    "Other Expenses") for a transaction that a merchant rule also recognizes by
+    name (e.g. a utility company). The merchant match is the more accurate
+    signal, so the pipeline must run apply_merchant_rules before
+    apply_category_rules - otherwise the generic raw_category rule claims the
+    transaction first and the merchant rule's category never gets applied."""
+    session = make_session()
+    fees = Category(name="Fees & Adjustments")
+    utilities = Category(name="Bills & Utilities")
+    session.add_all([fees, utilities])
+    session.commit()
+
+    account = make_account(session)
+    session.add(
+        CategoryRule(institution="Bank of America", raw_category="Other Expenses", category_id=fees.id)
+    )
+    session.add(MerchantRule(match_pattern="cmp", clean_name="Central Maine Power", category_id=utilities.id))
+    session.commit()
+
+    txn = Transaction(
+        account_id=account.id,
+        date=date(2026, 5, 7),
+        description="Cmp",
+        amount_cents=-26259,
+        raw_category="Other Expenses",
+        source_row_hash="hash-cmp-precedence-test",
+    )
+    session.add(txn)
+    session.commit()
+
+    apply_merchant_rules(session)
+    apply_category_rules(session)
+
+    session.refresh(txn)
+    assert txn.clean_description == "Central Maine Power"
+    assert txn.category_id == utilities.id

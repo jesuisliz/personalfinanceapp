@@ -90,8 +90,11 @@ def import_file(session: Session, filename: str, file_bytes: bytes) -> ImportSum
             rows_inserted += result.rowcount
 
     session.commit()
-    apply_category_rules(session)
+    # Merchant rules run first: a specific merchant match (e.g. a utility company)
+    # is more accurate than a bank's own generic raw_category, so it should win
+    # when both are available for the same transaction.
     apply_merchant_rules(session)
+    apply_category_rules(session)
 
     return ImportSummary(
         filename=filename,

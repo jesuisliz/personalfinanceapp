@@ -83,18 +83,21 @@ class TransferMatch(Base):
 
 Priority, highest wins:
 1. `transaction.category_id` already set (manual edit, or a prior rule application) — never overwritten by re-running rule application.
-2. `category_rules` match on `(account_id, transaction.raw_category)` — an account-specific rule (§12).
-3. `category_rules` match on `(account.institution, transaction.raw_category)` — the institution-wide rule.
-4. Otherwise `NULL` (uncategorized) — never guessed.
+2. `merchant_rules` match on `description` (§5) — a specific known merchant is a more accurate signal than the bank's own generic raw category, so `apply_merchant_rules` runs *before* `apply_category_rules` in the import pipeline (`app/imports/pipeline.py`).
+3. `category_rules` match on `(account_id, transaction.raw_category)` — an account-specific rule (§12).
+4. `category_rules` match on `(account.institution, transaction.raw_category)` — the institution-wide rule.
+5. Otherwise `NULL` (uncategorized) — never guessed.
 
-Rule application is idempotent: it only sets `category_id` on transactions where it is currently `NULL`, so it's safe to re-run after every import without clobbering manual edits.
+Rule application is idempotent: it only sets `category_id` on transactions where it is currently `NULL`, so it's safe to re-run after every import without clobbering manual edits. **This ordering was fixed 2026-07-29 — see §14; before that, category_rules ran first and could permanently claim a transaction a merchant rule would have categorized more accurately.**
 
 ## 5. Merchant Cleanup
 
 Priority, highest wins:
 1. `transaction.clean_description` already set (manual edit, or a prior rule application) — never overwritten by re-running rule application.
-2. `merchant_rules` substring match against `description` (case-insensitive) — first match wins, sets `clean_description` and, if the rule specifies one, `category_id` (only if `category_id` is still `NULL`, per §4's priority).
+2. `merchant_rules` substring match against `description` (case-insensitive) — first match wins, sets `clean_description` and, if the rule specifies one, `category_id` (only if `category_id` is still `NULL`).
 3. Otherwise display the raw `description` as-is.
+
+Because `apply_merchant_rules` now runs before `apply_category_rules` (§4, §14), a merchant rule's `category_id` normally wins outright rather than only filling a gap left by §4 — the "only if still `NULL`" case now mainly protects against re-running merchant rules after a category rule was applied some other way (e.g. a future pipeline change, or a rule added out of band).
 
 No default merchant rules were seeded at launch — CLAUDE.md's "never guess financial data" extends to merchant names; rules get added as patterns are noticed worth cleaning (e.g. `AMAZON MKTPL*` → `Amazon`), same spirit as the `add-bank-source` skill but for merchant patterns instead of bank formats.
 
@@ -193,3 +196,15 @@ Verified: full backend suite 128/128 (7 new regression tests added this session 
 2. **Category bug, found via the same investigation**: even after the label was fixed, the 7 payments were split between `Fees & Adjustments` (Jan-Apr, an old assignment predating this session) and `Transfers` (May-Jul) — neither correct for a recurring debt payment. New category **Auto Loan**; all 7 reclassified. Repointing the `"Payment to Bank of America"` merchant rule's `category_id` to Auto Loan looked sufficient but wasn't: the institution-wide `CategoryRule` `(Bank of America, Loans) → Transfers` (rule id 37, pre-existing) still runs *before* merchant rules for any row with a populated `raw_category`, so a future aggregator-format import of this same payment (`raw_category="Loans"`) would have kept landing in Transfers — only its clean_description would have been fixed, not its category. Same account-scoping mechanism as §12's BofA Cash Rewards fix: added `(Bank of America, Loans, account_id=<BOA Interest Checking>) → Auto Loan`, confirmed no other account ever uses BofA's `Loans` raw category (so this can't misfire elsewhere), and verified live by resetting a real transaction's `category_id` to `NULL`, re-running `apply_category_rules`, confirming it resolved to Auto Loan, then restoring the original value.
 
 Category count as of this section: **20**. Full test suite still 132/132 (4 more regression tests added since §12: `test_dispatch_get_category_transactions_all_months_when_month_omitted` and its `test_dashboard.py` counterparts — see `lld_phase4_claude.md` §9 for why "all months" needed its own fix, a related but separate chatbot issue found the same day).
+
+## 14. 2026-07-29 — Central Maine Power split across categories; fixed the general `category_rules`-before-`merchant_rules` precedence bug §13 had flagged but only worked around
+
+User report: "Bills & Utilities" showed Central Maine Power (CMP) payments for Jan-Apr 2026 but not May-Jul, despite the source data having all 7 months. Root cause was the same *class* of bug §13's vehicle-loan fix (account-scoped `CategoryRule`) had worked around for one specific merchant, but this time hit the general case:
+
+1. The BOA Interest Checking account's CMP payments changed description format starting May 2026 (per [[phase1-status]]'s native-BOA-format discovery): Jan-Apr used the old aggregator's ACH string (`CMP DES:CMP PMT ID:...`, no `raw_category` at all), which the existing `merchant_rules` pattern `"CMP DES:CMP PMT"` matched, correctly setting `Bills & Utilities`. May-Jul used the new native-format description (just `Cmp`) *plus* a populated `raw_category` (`"Other Expenses"`).
+2. `apply_category_rules` ran before `apply_merchant_rules` in `app/imports/pipeline.py`, so the generic `(Bank of America, "Other Expenses") → Fees & Adjustments` institution-wide rule claimed these 3 transactions first. Even if the merchant-rule pattern had matched `Cmp` (it didn't — too narrow), `apply_merchant_rules` never overwrites an already-set `category_id`, so the merchant rule could never have won under the old pipeline order.
+3. This is exactly the general form of the gap §13 flagged in its vehicle-loan fix ("the institution-wide CategoryRule still runs before merchant rules for any row with a populated raw_category") — that fix added a one-off account-scoped `CategoryRule` to work around it for that one merchant; this time the fix addressed the root cause instead.
+
+**Fix, applied at the pipeline level rather than as another one-off account-scoped rule:** swapped the call order in `app/imports/pipeline.py` so `apply_merchant_rules` runs before `apply_category_rules` (§4/§5 updated accordingly). A specific merchant match is a more accurate signal than a bank's own generic raw-category bucket, so it should win by default — the account-scoped-`CategoryRule` mechanism from §12/§13 remains available for cases with no merchant rule at all, but is no longer the only tool for this class of conflict. Also broadened the CMP merchant rule's pattern from `"CMP DES:CMP PMT"` to `"cmp"` (checked case-insensitive substring `"cmp"` against every transaction description in the real data first — matches only the 7 genuine CMP transactions, no false positives) so it catches both description formats. The 3 already-miscategorized May-Jul transactions were corrected directly via `PATCH /transactions/{id}` (the same mechanism as manual category editing), since `apply_merchant_rules` running after the fact still won't touch a transaction whose `category_id` was already set by the old pipeline order.
+
+Checked whether this same precedence conflict silently affects any other merchant right now (a transaction with both a populated `raw_category` and a matching merchant rule of a different category) — it didn't; CMP was the only live case. Added a regression test, `test_merchant_rule_wins_over_raw_category_when_applied_first` in `test_categories.py`, that seeds a conflicting `CategoryRule` and `MerchantRule` for the same transaction and asserts the merchant rule's category wins — this would fail under the old pipeline order. Full suite 133/133. Verified live: all 7 CMP months show `Bills & Utilities` in the Transactions tab, and the July 2026 dashboard category drill-down lists "Central Maine Power" under Bills & Utilities.
