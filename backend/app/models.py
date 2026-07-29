@@ -47,6 +47,11 @@ class MerchantRule(Base):
     match_pattern: Mapped[str] = mapped_column(String, nullable=False)
     clean_name: Mapped[str] = mapped_column(String, nullable=False)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+    # When set, this rule only matches transactions on this one account - needed
+    # for generic bank statement text (e.g. "PAYMENT - THANK YOU") that carries no
+    # identifying info, so a global rule could otherwise mislabel a different
+    # account's transactions that happen to reuse the same generic text.
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
 
 
 class Transaction(Base):

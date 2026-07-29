@@ -54,15 +54,23 @@ def apply_merchant_rules(session: Session) -> int:
     the transaction doesn't already have one) based on a case-insensitive
     substring match of MerchantRule.match_pattern against Transaction.description.
 
+    A rule scoped to a specific account_id is checked before any account-wide
+    (account_id is None) rule, since generic bank statement text (e.g. "PAYMENT -
+    THANK YOU") can carry no identifying info and would otherwise risk matching
+    the same text on a different account. Within each tier, first matching rule
+    wins (rules are checked in id order).
+
     Never overwrites a transaction that already has a clean_description — manual
-    edits and prior rule applications are never clobbered. First matching rule
-    wins (rules are checked in id order). Safe to call repeatedly.
+    edits and prior rule applications are never clobbered. Safe to call repeatedly.
 
     Returns the number of transactions updated.
     """
-    rules = session.execute(select(MerchantRule).order_by(MerchantRule.id)).scalars().all()
-    if not rules:
+    all_rules = session.execute(select(MerchantRule).order_by(MerchantRule.id)).scalars().all()
+    if not all_rules:
         return 0
+
+    account_rules = [rule for rule in all_rules if rule.account_id is not None]
+    global_rules = [rule for rule in all_rules if rule.account_id is None]
 
     candidates = session.execute(
         select(Transaction).where(Transaction.clean_description.is_(None))
@@ -71,7 +79,10 @@ def apply_merchant_rules(session: Session) -> int:
     updated = 0
     for transaction in candidates:
         description_lower = transaction.description.lower()
-        for rule in rules:
+        applicable_rules = [
+            rule for rule in account_rules if rule.account_id == transaction.account_id
+        ] + global_rules
+        for rule in applicable_rules:
             if rule.match_pattern.lower() in description_lower:
                 transaction.clean_description = rule.clean_name
                 if rule.category_id is not None and transaction.category_id is None:

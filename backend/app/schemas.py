@@ -67,12 +67,14 @@ class MerchantRuleOut(BaseModel):
     match_pattern: str
     clean_name: str
     category_id: int | None
+    account_id: int | None
 
 
 class MerchantRuleCreate(BaseModel):
     match_pattern: str
     clean_name: str
     category_id: int | None = None
+    account_id: int | None = None
 
 
 class TransferMatchOut(BaseModel):

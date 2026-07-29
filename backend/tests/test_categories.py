@@ -205,3 +205,56 @@ def test_merchant_rule_wins_over_raw_category_when_applied_first():
     session.refresh(txn)
     assert txn.clean_description == "Central Maine Power"
     assert txn.category_id == utilities.id
+
+
+def test_account_scoped_merchant_rule_overrides_global_rule_for_same_text():
+    """Some bank statement text is generic enough (e.g. "PAYMENT - THANK YOU") to
+    carry no identifying info about which specific card it belongs to. An
+    account-scoped merchant rule must win over a global rule matching the same
+    text for that one account, while other accounts still fall back to the
+    global rule - otherwise a rule meant for one card would mislabel another
+    card's payments that happen to use the same generic phrasing."""
+    session = make_session()
+    payments = Category(name="Credit Card Payment")
+    session.add(payments)
+    session.commit()
+
+    cash_rewards = make_account(session, name="BOA Customized Cash Rewards")
+    travel_rewards = make_account(session, name="BOA Travel Rewards Visa Signature")
+
+    session.add_all(
+        [
+            MerchantRule(match_pattern="PAYMENT - THANK YOU", clean_name="Generic Card Payment", category_id=payments.id),
+            MerchantRule(
+                match_pattern="PAYMENT - THANK YOU",
+                clean_name="BofA Cash Rewards Card Payment",
+                category_id=payments.id,
+                account_id=cash_rewards.id,
+            ),
+        ]
+    )
+    session.commit()
+
+    cash_rewards_txn = Transaction(
+        account_id=cash_rewards.id,
+        date=date(2026, 1, 23),
+        description="PAYMENT - THANK YOU",
+        amount_cents=40028,
+        source_row_hash="hash-cash-rewards-payment",
+    )
+    travel_rewards_txn = Transaction(
+        account_id=travel_rewards.id,
+        date=date(2026, 1, 23),
+        description="PAYMENT - THANK YOU",
+        amount_cents=20000,
+        source_row_hash="hash-travel-rewards-payment",
+    )
+    session.add_all([cash_rewards_txn, travel_rewards_txn])
+    session.commit()
+
+    apply_merchant_rules(session)
+
+    session.refresh(cash_rewards_txn)
+    session.refresh(travel_rewards_txn)
+    assert cash_rewards_txn.clean_description == "BofA Cash Rewards Card Payment"
+    assert travel_rewards_txn.clean_description == "Generic Card Payment"

@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.chat.service import _cents_to_dollars, answer_question
@@ -301,6 +301,7 @@ def test_dispatch_get_financial_runway_not_configured():
     session = make_session()
     result = dispatch_tool_call(session, "get_financial_runway", {"months": 6})
     assert result["balance_configured"] is False
+    assert result["balance_source"] == "stored"
 
 
 def test_dispatch_get_financial_runway_configured():
@@ -313,7 +314,48 @@ def test_dispatch_get_financial_runway_configured():
     result = dispatch_tool_call(session, "get_financial_runway", {"months": 1})
 
     assert result["balance_configured"] is True
+    assert result["balance_source"] == "stored"
     assert result["runway_months"] == 5.0
+
+
+def test_dispatch_get_financial_runway_hypothetical_balance_overrides_stored():
+    """A user asking a one-off 'what if I had $X' question in chat should get an
+    answer based on that stated amount, not their saved balance -- and the saved
+    balance must be left completely untouched afterward (never an implicit write)."""
+    session = make_session()
+    account = make_account(session)
+    make_txn(session, account.id, -100000, date(2026, 7, 15))
+    session.add(CurrentBalance(amount_cents=500000, updated_at=datetime(2026, 7, 27)))
+    session.commit()
+
+    result = dispatch_tool_call(
+        session,
+        "get_financial_runway",
+        {"months": 1, "hypothetical_balance_cents": 1500000},
+    )
+
+    assert result["balance_source"] == "hypothetical"
+    assert result["current_balance_cents"] == 1500000
+    assert result["runway_months"] == 15.0
+
+    stored = session.execute(select(CurrentBalance)).scalar_one()
+    assert stored.amount_cents == 500000
+
+
+def test_dispatch_get_financial_runway_hypothetical_balance_works_when_none_stored():
+    session = make_session()
+    account = make_account(session)
+    make_txn(session, account.id, -50000, date(2026, 7, 15))
+
+    result = dispatch_tool_call(
+        session,
+        "get_financial_runway",
+        {"months": 1, "hypothetical_balance_cents": 300000},
+    )
+
+    assert result["balance_configured"] is True
+    assert result["balance_source"] == "hypothetical"
+    assert result["runway_months"] == 6.0
 
 
 # --- answer_question orchestration loop (fake client, no network/API key needed) ---

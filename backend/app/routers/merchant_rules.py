@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.categories.apply import apply_merchant_rules
 from app.db import get_db
-from app.models import Category, MerchantRule
+from app.models import Account, Category, MerchantRule
 from app.schemas import MerchantRuleCreate, MerchantRuleOut
 
 router = APIRouter()
@@ -19,11 +19,14 @@ def list_merchant_rules(db: Session = Depends(get_db)):
 def create_merchant_rule(body: MerchantRuleCreate, db: Session = Depends(get_db)):
     if body.category_id is not None and db.get(Category, body.category_id) is None:
         raise HTTPException(status_code=400, detail=f"Category {body.category_id} not found")
+    if body.account_id is not None and db.get(Account, body.account_id) is None:
+        raise HTTPException(status_code=400, detail=f"Account {body.account_id} not found")
 
     rule = MerchantRule(
         match_pattern=body.match_pattern,
         clean_name=body.clean_name,
         category_id=body.category_id,
+        account_id=body.account_id,
     )
     db.add(rule)
     db.commit()

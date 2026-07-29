@@ -73,3 +73,51 @@ Two new chat tools (`get_savings_goals`, `get_financial_runway`) so the existing
 ## 7. Gotcha Encountered During This Phase (environment, not code)
 
 Verifying the new endpoints live was repeatedly blocked by `uvicorn --reload` appearing to serve stale code even immediately after a clean restart with no errors in the startup log. Root cause, finally isolated: running `python -c "..."` or `pytest` *from inside the watched `backend/` directory* while the reloader is running writes to `__pycache__`/`.pytest_cache` inside that same tree, which the file watcher picks up as a change and silently restarts the server mid-verification — racing every diagnostic command against its own trigger. Fix: run verification/debugging scripts for the *running* app from **outside** the watched directory (e.g. the session scratchpad, invoking the venv's `python.exe` by full path) rather than `cd`-ing into `backend/` to run one-off checks while a dev server with `--reload` is live. This combines with the earlier-documented orphaned-process gotcha ([[phase4-status]]) as the two dev-workflow issues worth checking first whenever a running server seems to disagree with the code on disk.
+
+## 8. Hypothetical balance for ad-hoc runway questions in chat
+
+**Status: implemented and live-verified, 2026-07-29.**
+
+**Problem:** The user asked why they can't just tell the chatbot "let's say I have $15,000 and no income coming in, how many months can I manage" directly in conversation, instead of first navigating to the Planning tab, entering a balance, saving it, and *then* asking. Today `get_financial_runway` (chat tool, §3 above) always calls `get_current_balance_cents(session)` — it can only ever use the persisted `CurrentBalance` row, and returns `balance_configured: false` if none exists (which is the real state of the live app as of 2026-07-29 — nobody has entered one). There's no way to ask a one-off hypothetical without committing a real number to the database first.
+
+**Why persisted balance shouldn't just be replaced:** it's still the right design for the Planning tab's dashboard widgets and for goal tracking (`SavingsGoal.saved_so_far_cents` genuinely needs to persist over time). The gap is narrower than "the whole balance model is wrong" — it's specifically that chat has no way to supply an ad-hoc number.
+
+**Design — smaller than it first looks, because `compute_runway` is already balance-source-agnostic:**
+
+```python
+def compute_runway(
+    session: Session, current_balance_cents: int | None, months: int, account_id: int | None
+) -> RunwayOut:
+```
+
+`compute_runway` already takes `current_balance_cents` as a plain parameter — it has no idea whether that number came from the database or somewhere else. The DB coupling lives entirely in the *call site*, in `chat/tools.py`:
+
+```python
+if name == "get_financial_runway":
+    result = compute_runway(
+        session, get_current_balance_cents(session), arguments["months"], account_id
+    )
+```
+
+So the fix touches only the chat tool layer — no changes needed to `planning/aggregates.py`, no schema/DB migration, no changes to the REST `/runway` endpoint or the Planning tab UI:
+
+1. **Add an optional `hypothetical_balance_cents` argument** to the `get_financial_runway` tool schema in `chat/tools.py`:
+   ```python
+   "hypothetical_balance_cents": {
+       "type": ["integer", "null"],
+       "description": "If the user states a balance in conversation (e.g. 'let's say I have $15,000'), pass it here as a one-off simulation. Do not persist it. Omit to use the user's actually-saved balance instead.",
+   },
+   ```
+2. **Update the dispatch logic**: use `arguments.get("hypothetical_balance_cents")` if the model supplied one, else fall back to `get_current_balance_cents(session)` — same `compute_runway` call either way, just a different source for the one argument it already accepts.
+3. **Tag which source was used** in the tool's return payload (e.g. `{"balance_source": "hypothetical" | "stored", **result.model_dump(mode="json")}`) so the model's answer can correctly say "based on the $15,000 you mentioned" vs. "based on your saved balance of $X" — and never conflate a hypothetical with the user's real saved number in the same or a later answer.
+4. **Never write to `CurrentBalance`** from this path — a hypothetical is explicitly not a balance update. If the user wants to actually update their saved balance, that stays a deliberate Planning-tab action (or a separate, explicit "update my balance to $X" request), never an implicit side effect of asking a what-if question.
+
+**Non-goals for this change:** no new persisted table/column; no change to `apply_scenario_to_runway`'s category-reduction scenario (still Planning-tab-only per the existing open item from 2026-07-29); no change to `get_savings_goals` (goals still require a real persisted `saved_so_far_cents` — a hypothetical goal timeline isn't part of this request).
+
+**Test plan:** extend `test_chat.py`'s tool-dispatch tests with a case that passes `hypothetical_balance_cents` and asserts (a) the returned runway math matches a hand-computed value, (b) `balance_source` reports `"hypothetical"`, and (c) `current_balance` in the database is unchanged after the call (proves no persistence side effect).
+
+**Built exactly as designed** — only `chat/tools.py` changed (tool schema + dispatch logic), no changes to `planning/aggregates.py`, no migration, no REST/Planning-tab changes. Two new regression tests added (`test_dispatch_get_financial_runway_hypothetical_balance_overrides_stored`, `test_dispatch_get_financial_runway_hypothetical_balance_works_when_none_stored`), plus `balance_source` assertions added to the two pre-existing runway tests. Full suite 136/136.
+
+Live-verified in the browser: asked the chatbot *"Let's say I have $15,000 saved and no income coming in starting next month. How many months of runway do I have?"* with no `CurrentBalance` row in the live database. Bot correctly answered "approximately 1.58 months of runway... around September 11, 2026," with the raw tool payload showing `"balance_source": "hypothetical"`. Independently reproduced outside the app (`15000_00 / 951873 = 1.5758404745170838`, hand-computed from the same `avg_monthly_expense_cents` the tool returned) — exact match. Confirmed via direct SQLite query that `current_balance` still had 0 rows afterward — no implicit persistence.
+
+**Dev-server gotcha #7 recurred during this build** (see [[dev_server_gotchas]]): the first live-test attempt returned the *old* response shape (missing the new `balance_source` field entirely) even though the edit had been saved and the `--reload` server was responding 200 OK — the reloader had silently stopped completing after a prior edit in this same session. Fixed the same way as before: found the full 3-level process tree (`uvicorn` CLI → reloader → `multiprocessing.spawn_main` worker), killed all three, confirmed port 8000 was free, started a completely fresh server, then re-ran the live test and got the correct new-code response. Reinforces the existing rule: a "Reloading..." log line or a 200 OK response is never proof the reload actually finished — always check the *result* of a request that would only differ under the new code.

@@ -175,9 +175,11 @@ def build_tool_schemas(session: Session) -> list[dict]:
                 "name": "get_financial_runway",
                 "description": (
                     "How many months the user's current savings would last at their actual average "
-                    "monthly expense rate (e.g. if they left their job). Requires the user to have "
-                    "manually entered a current balance -- if they haven't, this returns "
-                    "balance_configured=false rather than a number."
+                    "monthly expense rate (e.g. if they left their job). Uses the user's saved current "
+                    "balance by default -- if they haven't entered one, this returns "
+                    "balance_configured=false rather than a number. If the user instead poses a "
+                    "hypothetical in conversation (e.g. 'let's say I have $15,000'), pass that amount "
+                    "as hypothetical_balance_cents to simulate it without touching their saved balance."
                 ),
                 "parameters": {
                     "type": "object",
@@ -187,6 +189,14 @@ def build_tool_schemas(session: Session) -> list[dict]:
                             "description": "Trailing months to average expenses over, e.g. 6",
                         },
                         "account_id": {"type": ["integer", "null"]},
+                        "hypothetical_balance_cents": {
+                            "type": ["integer", "null"],
+                            "description": (
+                                "A one-off balance stated in conversation, in cents, to simulate "
+                                "instead of the user's saved balance. Never persisted. Omit/null to "
+                                "use the user's actually-saved balance instead."
+                            ),
+                        },
                     },
                     "required": ["months"],
                 },
@@ -261,9 +271,14 @@ def dispatch_tool_call(session: Session, name: str, arguments: dict) -> dict | l
         ]
 
     if name == "get_financial_runway":
-        result = compute_runway(
-            session, get_current_balance_cents(session), arguments["months"], account_id
-        )
-        return result.model_dump(mode="json")
+        hypothetical_balance_cents = arguments.get("hypothetical_balance_cents")
+        if hypothetical_balance_cents is not None:
+            balance_cents = hypothetical_balance_cents
+            balance_source = "hypothetical"
+        else:
+            balance_cents = get_current_balance_cents(session)
+            balance_source = "stored"
+        result = compute_runway(session, balance_cents, arguments["months"], account_id)
+        return {"balance_source": balance_source, **result.model_dump(mode="json")}
 
     raise ValueError(f"Unknown tool: {name!r}")
