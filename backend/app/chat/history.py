@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import ChatConversation, ChatMessage
@@ -64,3 +64,13 @@ def rename_conversation(session: Session, conversation_id: int, title: str) -> C
     session.commit()
     session.refresh(conversation)
     return conversation
+
+
+def delete_conversation(session: Session, conversation_id: int) -> None:
+    # SQLite foreign-key enforcement is off by default in this app (no PRAGMA foreign_keys=ON),
+    # so the ondelete="CASCADE" on ChatMessage.conversation_id is not enforced by the DB.
+    # Delete messages explicitly rather than relying on it.
+    session.execute(delete(ChatMessage).where(ChatMessage.conversation_id == conversation_id))
+    conversation = session.get(ChatConversation, conversation_id)
+    session.delete(conversation)
+    session.commit()

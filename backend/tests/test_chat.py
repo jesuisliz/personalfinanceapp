@@ -11,7 +11,7 @@ from app.chat.service import _cents_to_dollars, answer_question
 from app.chat.tools import build_tool_schemas, dispatch_tool_call, resolve_category_id
 from app.db import Base
 from app.models import Account, Category, ChatConversation, ChatMessage, CurrentBalance, SavingsGoal, Transaction
-from app.routers.chat import get_conversation_messages, list_conversations, rename_conversation
+from app.routers.chat import delete_conversation, get_conversation_messages, list_conversations, rename_conversation
 from app.schemas import ChatConversationUpdate, ToolCallOut
 
 # --- fixtures / helpers (mirrors the pattern in test_dashboard.py) ---
@@ -644,5 +644,53 @@ def test_rename_conversation_unknown_id_returns_404():
 
     with pytest.raises(HTTPException) as exc_info:
         rename_conversation(999, ChatConversationUpdate(title="new title"), db=session)
+
+    assert exc_info.value.status_code == 404
+
+
+# --- Phase 6 M5: DELETE /chat/conversations/{id} ---
+
+
+def test_history_delete_conversation_removes_conversation_and_cascades_messages():
+    session = make_session()
+    conversation = history.create_conversation(session, "original title")
+    history.append_message(session, conversation.id, "user", "hi")
+    history.append_message(session, conversation.id, "assistant", "hello")
+
+    history.delete_conversation(session, conversation.id)
+
+    assert session.get(ChatConversation, conversation.id) is None
+    assert session.execute(
+        select(ChatMessage).where(ChatMessage.conversation_id == conversation.id)
+    ).scalars().all() == []
+
+
+def test_history_delete_conversation_leaves_other_conversations_untouched():
+    session = make_session()
+    keep = history.create_conversation(session, "keep me")
+    history.append_message(session, keep.id, "user", "hi")
+    doomed = history.create_conversation(session, "delete me")
+    history.append_message(session, doomed.id, "user", "bye")
+
+    history.delete_conversation(session, doomed.id)
+
+    assert session.get(ChatConversation, keep.id) is not None
+    assert len(session.execute(select(ChatMessage).where(ChatMessage.conversation_id == keep.id)).scalars().all()) == 1
+
+
+def test_delete_conversation_router_removes_it():
+    session = make_session()
+    conversation = history.create_conversation(session, "original title")
+
+    delete_conversation(conversation.id, db=session)
+
+    assert session.get(ChatConversation, conversation.id) is None
+
+
+def test_delete_conversation_unknown_id_returns_404():
+    session = make_session()
+
+    with pytest.raises(HTTPException) as exc_info:
+        delete_conversation(999, db=session)
 
     assert exc_info.value.status_code == 404

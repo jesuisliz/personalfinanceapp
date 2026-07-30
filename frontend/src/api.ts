@@ -284,6 +284,11 @@ export async function renameConversation(id: number, title: string): Promise<Cha
   return asJson(res, "Failed to rename conversation");
 }
 
+export async function deleteConversation(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/chat/conversations/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete conversation");
+}
+
 export async function fetchGoals(): Promise<SavingsGoal[]> {
   const res = await fetch(`${API_BASE}/goals`);
   if (!res.ok) throw new Error("Failed to load goals");

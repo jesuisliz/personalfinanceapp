@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  deleteConversation,
   fetchConversationMessages,
   fetchConversations,
   renameConversation,
@@ -221,6 +222,18 @@ export default function Chat() {
     refreshConversations();
   }
 
+  async function handleDeleteConversation(id: number) {
+    if (!window.confirm("Delete this conversation? This cannot be undone.")) return;
+
+    await deleteConversation(id);
+    if (id === conversationId) {
+      setConversationId(null);
+      setMessages([]);
+      localStorage.removeItem(CONVERSATION_ID_KEY);
+    }
+    refreshConversations();
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || loading || historyLoading) return;
@@ -276,15 +289,28 @@ export default function Chat() {
                   }}
                 />
               ) : (
-                <div
-                  className="truncate hover:text-accent transition-colors"
-                  title="Click to rename"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startEditingTitle(c);
-                  }}
-                >
-                  {c.title}
+                <div className="flex items-start justify-between gap-1">
+                  <div
+                    className="truncate hover:text-accent transition-colors"
+                    title="Click to rename"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startEditingTitle(c);
+                    }}
+                  >
+                    {c.title}
+                  </div>
+                  <button
+                    type="button"
+                    title="Delete conversation"
+                    className="shrink-0 text-ink-muted hover:text-critical transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteConversation(c.id);
+                    }}
+                  >
+                    &times;
+                  </button>
                 </div>
               )}
               <div className="text-xs text-ink-muted">{formatRelativeTime(c.updated_at)}</div>

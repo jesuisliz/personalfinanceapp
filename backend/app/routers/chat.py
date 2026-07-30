@@ -57,3 +57,12 @@ def rename_conversation(conversation_id: int, body: ChatConversationUpdate, db: 
         raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
 
     return history.rename_conversation(db, conversation_id, body.title)
+
+
+@router.delete("/chat/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
+    conversation = db.get(ChatConversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+
+    history.delete_conversation(db, conversation_id)

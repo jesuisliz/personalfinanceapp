@@ -189,7 +189,7 @@ Success criteria (from `PROJECT_CONTEXT.md`'s Definition of Success):
 
 ### Phase 6 — Chat History Persistence
 
-**Status: designed, not yet built** (2026-07-28). Full design in `lld_phase6_claude.md`. Not an original `CLAUDE.md` roadmap item — a user-requested evolution of Phase 4's chatbot: today's chat history is in-memory only (frontend React state, lost on refresh), a deliberate Phase 4 scope-down. The user wants a ChatGPT/Claude-like experience: history that survives a page refresh, with multiple named conversations they can browse and switch between. Broken into 5 independently shippable, independently testable milestones (M1-M5) so each can be built, verified, and approved before the next starts, per the user's usual incremental-build preference.
+**Status: built and verified, all 5 milestones complete** (2026-07-30). Full design and per-milestone verification detail in `lld_phase6_claude.md`. Not an original `CLAUDE.md` roadmap item — a user-requested evolution of Phase 4's chatbot: today's chat history is in-memory only (frontend React state, lost on refresh), a deliberate Phase 4 scope-down. The user wants a ChatGPT/Claude-like experience: history that survives a page refresh, with multiple named conversations they can browse and switch between. Broken into 5 independently shippable, independently testable milestones (M1-M5) so each can be built, verified, and approved before the next starts, per the user's usual incremental-build preference.
 
 Key design decisions confirmed with the user before writing the LLD (all via `AskUserQuestion`, each accepted the recommended default):
 - The schema is designed for the full multi-conversation end state from milestone 1, even though the UI ships incrementally — avoids migrating the schema twice.
@@ -197,7 +197,7 @@ Key design decisions confirmed with the user before writing the LLD (all via `As
 - Conversation titles are the first user message, truncated — no extra LLM call, consistent with this project's "never use the model for something code can do directly."
 - Deleting a conversation is a hard delete (with a UI confirmation step as the safeguard) — simplest fit for a single-user local app.
 
-Success criteria: not yet applicable — no milestone has been built yet. See `lld_phase6_claude.md` for the per-milestone acceptance checks that will fill in this section as each ships.
+Success criteria: all 5 milestones (persistence, resume-on-refresh, conversation list/New, rename, delete) built and independently live-verified against the real chat UI and `finance.db`, full backend suite (161/161) and frontend tsc/oxlint/vitest passing throughout. See `lld_phase6_claude.md` §5 for per-milestone acceptance detail.
 
 ## 7. Explicit Non-Goals (current phase)
 
