@@ -24,6 +24,7 @@ import {
 } from "./api";
 import { formatAmount } from "./format";
 import { Card, StatTile, inputClass } from "./ui";
+import { IconBank, IconCalendar } from "./icons";
 
 const MONTHS_HISTORY = 6;
 const TOP_MERCHANTS_LIMIT = 10;
@@ -182,8 +183,8 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-4 mb-4">
-        <label className="flex items-center gap-2">
-          <span className="font-medium text-ink-secondary text-sm">Account</span>
+        <label className="flex items-center gap-1.5" title="Account">
+          <IconBank className="text-ink-muted shrink-0" />
           <select
             className={inputClass}
             value={selectedAccountId ?? "all"}
@@ -275,8 +276,8 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
             </ResponsiveContainer>
           </Card>
 
-          <label className="flex items-center gap-2">
-            <span className="font-medium text-ink-secondary text-sm">Month</span>
+          <label className="flex items-center gap-1.5" title="Month">
+            <IconCalendar className="text-ink-muted shrink-0" />
             <select
               className={inputClass}
               value={selectedMonth ?? ALL_MONTHS_VALUE}
