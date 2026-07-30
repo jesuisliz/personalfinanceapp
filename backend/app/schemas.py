@@ -124,6 +124,7 @@ class ChatMessageIn(BaseModel):
 class ChatRequestIn(BaseModel):
     message: str
     history: list[ChatMessageIn] = []
+    conversation_id: int | None = None
 
 
 class ToolCallOut(BaseModel):
@@ -135,6 +136,7 @@ class ToolCallOut(BaseModel):
 class ChatReplyOut(BaseModel):
     reply: str
     tool_calls: list[ToolCallOut]
+    conversation_id: int
 
 
 class SavingsGoalOut(BaseModel):

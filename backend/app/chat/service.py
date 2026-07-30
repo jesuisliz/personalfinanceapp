@@ -3,9 +3,11 @@ import json
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.chat import history as chat_history
 from app.chat.tools import build_tool_schemas, dispatch_tool_call
 from app.config import OPENAI_API_KEY
 from app.dashboard.aggregates import latest_transaction_date
+from app.models import ChatConversation
 from app.schemas import ChatMessageIn, ChatReplyOut, ToolCallOut
 
 MODEL = "gpt-4o-mini"
@@ -66,9 +68,19 @@ def answer_question(
     message: str,
     history: list[ChatMessageIn],
     client: OpenAI | None = None,
+    conversation_id: int | None = None,
 ) -> ChatReplyOut:
     client = client or _default_client()
     tool_schemas = build_tool_schemas(session)
+
+    conversation = (
+        chat_history.create_conversation(session, message)
+        if conversation_id is None
+        else session.get(ChatConversation, conversation_id)
+    )
+    if conversation is None:
+        raise ValueError(f"Unknown conversation_id: {conversation_id!r}")
+    chat_history.append_message(session, conversation.id, "user", message)
 
     messages: list[dict] = [{"role": "system", "content": _system_prompt(session)}]
     messages += [{"role": h.role, "content": h.content} for h in history[-MAX_HISTORY_MESSAGES:]]
@@ -81,7 +93,9 @@ def answer_question(
         choice_message = response.choices[0].message
 
         if not choice_message.tool_calls:
-            return ChatReplyOut(reply=choice_message.content or "", tool_calls=tool_calls_made)
+            reply = choice_message.content or ""
+            chat_history.append_message(session, conversation.id, "assistant", reply, tool_calls_made)
+            return ChatReplyOut(reply=reply, tool_calls=tool_calls_made, conversation_id=conversation.id)
 
         messages.append(
             {
@@ -110,10 +124,9 @@ def answer_question(
                 {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(_cents_to_dollars(result))}
             )
 
-    return ChatReplyOut(
-        reply=(
-            "I wasn't able to finish answering that within the allowed number of steps. "
-            "Try asking a more specific question."
-        ),
-        tool_calls=tool_calls_made,
+    reply = (
+        "I wasn't able to finish answering that within the allowed number of steps. "
+        "Try asking a more specific question."
     )
+    chat_history.append_message(session, conversation.id, "assistant", reply, tool_calls_made)
+    return ChatReplyOut(reply=reply, tool_calls=tool_calls_made, conversation_id=conversation.id)

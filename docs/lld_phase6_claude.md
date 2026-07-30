@@ -1,6 +1,6 @@
 # Low-Level Design — Personal Finance App (Phase 6: Chat History Persistence)
 
-**Status: designed, not yet built** (2026-07-28).
+**Status: M1 built and verified (2026-07-30). M2-M5 designed, not yet built.**
 
 Companion to `hld_claude.md` and `lld_phase4_claude.md` (the chatbot this phase extends). Not an original `CLAUDE.md` roadmap item — a user-requested evolution of Phase 4: "I kinda like how my experience is with ChatGPT or Claude chat — keeping history." Today, chat history is in-memory only (`frontend/src/Chat.tsx` React state, resent each turn, no DB table) — a deliberate Phase 4 scope-down, not an oversight. This phase makes it persistent, with multiple named, browsable, switchable conversations, the way ChatGPT/Claude's own UI works.
 
@@ -73,6 +73,8 @@ Every chat turn gets written to the database, but the frontend behaves exactly a
 - **API**: `POST /chat` accepts optional `conversation_id`; response always includes one (newly created if none was passed). Internally: persist the user's message, run the existing tool-calling loop unchanged, persist the assistant's reply + its `tool_calls`.
 - **Frontend**: `Chat.tsx` starts passing back the `conversation_id` it received on the *next* request in the same browser session (an in-memory variable, not yet `localStorage`) — purely so multi-turn conversations land in one `ChatConversation` row instead of a new one per message. No visible change.
 - **Acceptance test**: backend test asserting a `POST /chat` call creates exactly one `ChatConversation` + 2 `ChatMessage` rows (user + assistant); a second call with the same `conversation_id` appends to the same conversation instead of creating a new one; a live check querying `finance.db` directly after a real browser exchange confirms the rows exist with the correct `tool_calls_json`.
+
+**Built and verified 2026-07-30.** 4 new backend tests (140 total passing), tsc/oxlint/vitest clean. Live-verified two ways: (1) direct `curl` calls to `POST /chat`, first without `conversation_id` then with the returned id, confirmed via raw `sqlite3` query against `finance.db` that both turns landed in one `ChatConversation` row with correct `tool_calls_json` on a tool-triggering question; (2) real browser exchange in the Chat tab (two turns, second one referencing the first by name) independently confirmed via the same raw-SQL check. `history.py` M1 scope only implements `create_conversation`/`append_message` — `list_conversations`/`get_conversation_messages`/`rename_conversation`/`delete_conversation` are deferred to M2-M5 rather than stubbed out now. Test rows deleted from `finance.db` after verification. Backend dev server was restarted (not trusted to `--reload`, per [[dev_server_gotchas]]) before live verification, since the new tables and `chat/history.py` module predated the running process.
 
 ### M2 — Resume on page load (single continuous history)
 

@@ -124,6 +124,10 @@ export default function Chat() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // In-memory only for now -- M1 deliberately doesn't persist this across a page
+  // refresh (that's M2). Keeping it here just makes multi-turn messages within one
+  // browser session land in the same ChatConversation row instead of a new one per turn.
+  const [conversationId, setConversationId] = useState<number | null>(null);
 
   async function handleSend() {
     const text = input.trim();
@@ -138,7 +142,8 @@ export default function Chat() {
     setLoading(true);
 
     try {
-      const reply = await sendChatMessage(text, history);
+      const reply = await sendChatMessage(text, history, conversationId);
+      setConversationId(reply.conversation_id);
       setMessages((prev) => [...prev, { role: "assistant", content: reply.reply, toolCalls: reply.tool_calls }]);
     } catch (err) {
       setMessages((prev) => [...prev, { role: "system", content: String(err) }]);

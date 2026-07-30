@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from app.chat.service import _cents_to_dollars, answer_question
 from app.chat.tools import build_tool_schemas, dispatch_tool_call, resolve_category_id
 from app.db import Base
-from app.models import Account, Category, CurrentBalance, SavingsGoal, Transaction
+from app.models import Account, Category, ChatConversation, ChatMessage, CurrentBalance, SavingsGoal, Transaction
 
 # --- fixtures / helpers (mirrors the pattern in test_dashboard.py) ---
 
@@ -446,3 +446,68 @@ def test_cents_to_dollars_leaves_non_cents_fields_alone():
         "amount_dollars": -10.50,
         "nested": {"months_considered": 6},
     }
+
+
+# --- Phase 6 M1: chat history persistence ---
+
+
+def test_answer_question_persists_one_conversation_and_two_messages():
+    session = make_session()
+    client = FakeClient([FakeResponse(FakeMessage(content="Hello there!"))])
+
+    result = answer_question(session, "hi", history=[], client=client)
+
+    conversations = session.execute(select(ChatConversation)).scalars().all()
+    assert len(conversations) == 1
+    assert conversations[0].id == result.conversation_id
+    assert conversations[0].title == "hi"
+
+    messages = session.execute(select(ChatMessage)).scalars().all()
+    assert [(m.role, m.content) for m in messages] == [("user", "hi"), ("assistant", "Hello there!")]
+    assert all(m.conversation_id == result.conversation_id for m in messages)
+    assert messages[1].tool_calls_json is None
+
+
+def test_answer_question_persists_tool_calls_on_assistant_message():
+    session = make_session()
+    account = make_account(session)
+    make_txn(session, account.id, -5000, date(2026, 7, 15))
+
+    tool_call = FakeToolCall("call_1", "get_monthly_summary", json.dumps({"months": 1}))
+    responses = [
+        FakeResponse(FakeMessage(content=None, tool_calls=[tool_call])),
+        FakeResponse(FakeMessage(content="You spent $50 in July.")),
+    ]
+    client = FakeClient(responses)
+
+    answer_question(session, "how much did I spend?", history=[], client=client)
+
+    assistant_message = session.execute(
+        select(ChatMessage).where(ChatMessage.role == "assistant")
+    ).scalar_one()
+    stored_tool_calls = json.loads(assistant_message.tool_calls_json)
+    assert len(stored_tool_calls) == 1
+    assert stored_tool_calls[0]["name"] == "get_monthly_summary"
+
+
+def test_answer_question_reuses_conversation_when_id_passed():
+    session = make_session()
+    first_client = FakeClient([FakeResponse(FakeMessage(content="First reply"))])
+    first_result = answer_question(session, "first message", history=[], client=first_client)
+
+    second_client = FakeClient([FakeResponse(FakeMessage(content="Second reply"))])
+    second_result = answer_question(
+        session, "second message", history=[], client=second_client, conversation_id=first_result.conversation_id
+    )
+
+    assert second_result.conversation_id == first_result.conversation_id
+    assert len(session.execute(select(ChatConversation)).scalars().all()) == 1
+    assert len(session.execute(select(ChatMessage)).scalars().all()) == 4
+
+
+def test_answer_question_unknown_conversation_id_raises():
+    session = make_session()
+    client = FakeClient([FakeResponse(FakeMessage(content="Hello there!"))])
+
+    with pytest.raises(ValueError):
+        answer_question(session, "hi", history=[], client=client, conversation_id=999)

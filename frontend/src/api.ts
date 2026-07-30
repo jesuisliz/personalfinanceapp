@@ -75,6 +75,7 @@ export interface ToolCall {
 export interface ChatReply {
   reply: string;
   tool_calls: ToolCall[];
+  conversation_id: number;
 }
 
 export interface SavingsGoal {
@@ -238,11 +239,15 @@ export async function fetchCategoryTransactions(
   return res.json();
 }
 
-export async function sendChatMessage(message: string, history: ChatMessage[]): Promise<ChatReply> {
+export async function sendChatMessage(
+  message: string,
+  history: ChatMessage[],
+  conversationId: number | null
+): Promise<ChatReply> {
   const res = await fetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, conversation_id: conversationId }),
   });
   return asJson(res, "Chat request failed");
 }

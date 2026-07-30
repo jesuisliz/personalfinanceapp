@@ -94,6 +94,29 @@ class SavingsGoal(Base):
     saved_so_far_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(String, nullable=False)
+    # JSON-encoded list[ToolCallOut]; null for user messages, which never have tool calls.
+    tool_calls_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class CurrentBalance(Base):
     """Single manually-entered total (savings/cash on hand) the user keeps up to date
     themselves. The app has no way to derive a real current balance from imported

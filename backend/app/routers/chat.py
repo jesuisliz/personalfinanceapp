@@ -11,6 +11,6 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatReplyOut)
 def chat(body: ChatRequestIn, db: Session = Depends(get_db)):
     try:
-        return answer_question(db, body.message, body.history)
-    except RuntimeError as exc:
+        return answer_question(db, body.message, body.history, conversation_id=body.conversation_id)
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
