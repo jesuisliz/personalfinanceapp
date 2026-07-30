@@ -7,7 +7,14 @@ from app.chat import history
 from app.chat.service import answer_question
 from app.db import get_db
 from app.models import ChatConversation
-from app.schemas import ChatConversationOut, ChatMessageOut, ChatReplyOut, ChatRequestIn, ToolCallOut
+from app.schemas import (
+    ChatConversationOut,
+    ChatConversationUpdate,
+    ChatMessageOut,
+    ChatReplyOut,
+    ChatRequestIn,
+    ToolCallOut,
+)
 
 router = APIRouter()
 
@@ -41,3 +48,12 @@ def get_conversation_messages(conversation_id: int, db: Session = Depends(get_db
         )
         for message in history.get_conversation_messages(db, conversation_id)
     ]
+
+
+@router.patch("/chat/conversations/{conversation_id}", response_model=ChatConversationOut)
+def rename_conversation(conversation_id: int, body: ChatConversationUpdate, db: Session = Depends(get_db)):
+    conversation = db.get(ChatConversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+
+    return history.rename_conversation(db, conversation_id, body.title)

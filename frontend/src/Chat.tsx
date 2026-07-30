@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   fetchConversationMessages,
   fetchConversations,
+  renameConversation,
   sendChatMessage,
   type ChatConversationSummary,
   type ChatMessage as ApiChatMessage,
@@ -136,6 +137,8 @@ export default function Chat() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
+  const [editingConversationId, setEditingConversationId] = useState<number | null>(null);
+  const [editingTitleValue, setEditingTitleValue] = useState("");
 
   function refreshConversations() {
     fetchConversations()
@@ -185,6 +188,20 @@ export default function Chat() {
     loadConversation(id).finally(() => setHistoryLoading(false));
   }
 
+  function startEditingTitle(c: ChatConversationSummary) {
+    setEditingConversationId(c.id);
+    setEditingTitleValue(c.title);
+  }
+
+  async function saveConversationTitle(id: number) {
+    const trimmed = editingTitleValue.trim();
+    setEditingConversationId(null);
+    if (!trimmed) return;
+
+    await renameConversation(id, trimmed);
+    refreshConversations();
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || loading || historyLoading) return;
@@ -219,16 +236,40 @@ export default function Chat() {
         </SecondaryButton>
         <div className="space-y-1">
           {conversations.map((c) => (
-            <button
+            <div
               key={c.id}
               onClick={() => handleSelectConversation(c.id)}
-              className={`w-full text-left rounded-lg px-2 py-1.5 text-sm transition-colors ${
+              className={`w-full text-left rounded-lg px-2 py-1.5 text-sm transition-colors cursor-pointer ${
                 c.id === conversationId ? "bg-surface-2 text-ink" : "text-ink-secondary hover:bg-surface-2"
               }`}
             >
-              <div className="truncate">{c.title}</div>
+              {editingConversationId === c.id ? (
+                <input
+                  autoFocus
+                  className={`${inputClass} w-full`}
+                  value={editingTitleValue}
+                  onChange={(e) => setEditingTitleValue(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={() => saveConversationTitle(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveConversationTitle(c.id);
+                    if (e.key === "Escape") setEditingConversationId(null);
+                  }}
+                />
+              ) : (
+                <div
+                  className="truncate hover:text-accent transition-colors"
+                  title="Click to rename"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEditingTitle(c);
+                  }}
+                >
+                  {c.title}
+                </div>
+              )}
               <div className="text-xs text-ink-muted">{formatRelativeTime(c.updated_at)}</div>
-            </button>
+            </div>
           ))}
         </div>
       </div>

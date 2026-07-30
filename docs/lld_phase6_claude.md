@@ -1,6 +1,6 @@
 # Low-Level Design — Personal Finance App (Phase 6: Chat History Persistence)
 
-**Status: M1, M2, and M3 built and verified (2026-07-30). M4-M5 designed, not yet built.**
+**Status: M1-M4 built and verified (2026-07-30). M5 designed, not yet built.**
 
 Companion to `hld_claude.md` and `lld_phase4_claude.md` (the chatbot this phase extends). Not an original `CLAUDE.md` roadmap item — a user-requested evolution of Phase 4: "I kinda like how my experience is with ChatGPT or Claude chat — keeping history." Today, chat history is in-memory only (`frontend/src/Chat.tsx` React state, resent each turn, no DB table) — a deliberate Phase 4 scope-down, not an oversight. This phase makes it persistent, with multiple named, browsable, switchable conversations, the way ChatGPT/Claude's own UI works.
 
@@ -101,6 +101,8 @@ The ChatGPT-style browsing experience: see past conversations, switch between th
 - **API**: `PATCH /chat/conversations/{id}`.
 - **Frontend**: inline click-to-edit title in the list, reusing the exact pattern already used for transaction descriptions/notes in `App.tsx` (click text → input → save on blur/Enter, Escape to cancel) rather than inventing a new editing convention.
 - **Acceptance test**: rename persists across a page reload; submitting a blank title is rejected client-side and reverts to the previous title (never silently saved as empty).
+
+**Built and verified 2026-07-30.** Added `history.rename_conversation` and `PATCH /chat/conversations/{id}` (404 if the id doesn't exist), plus a `ChatConversationUpdate` schema (`{title}`). `Chat.tsx`'s sidebar entries changed from `<button>` to a clickable `<div>` row so the title text can independently enter edit mode (click title → input, `stopPropagation` so it doesn't also trigger conversation selection) — same click-to-edit pattern as `App.tsx`'s description/note fields, but blank-title submission reverts client-side to the previous title instead of saving `null` (there is no "empty conversation title" concept the way there is an "empty note"). 3 new backend tests (147 total), tsc/oxlint/vitest clean. Live-verified in the browser: created a conversation via `POST /chat`, renamed it via `curl PATCH` and confirmed via raw SQL, then in the actual Chat UI clicked the title, retyped it, pressed Enter, and confirmed the new title survived a full page reload; then cleared the field and pressed Enter and confirmed it reverted to the prior title in the UI with the database left untouched (verified via raw SQL). Test rows deleted from `finance.db` afterward. Backend dev server had a stray `--reload` instance plus an orphaned `multiprocessing.spawn` child from a prior session both holding port 8000 (see [[dev_server_gotchas]]) — killed both and started fresh before testing.
 
 ### M5 — Delete a conversation
 

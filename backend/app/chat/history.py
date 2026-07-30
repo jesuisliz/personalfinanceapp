@@ -56,3 +56,11 @@ def get_conversation_messages(session: Session, conversation_id: int) -> list[Ch
 
 def list_conversations(session: Session) -> list[ChatConversation]:
     return list(session.execute(select(ChatConversation).order_by(ChatConversation.updated_at.desc())).scalars())
+
+
+def rename_conversation(session: Session, conversation_id: int, title: str) -> ChatConversation:
+    conversation = session.get(ChatConversation, conversation_id)
+    conversation.title = title
+    session.commit()
+    session.refresh(conversation)
+    return conversation

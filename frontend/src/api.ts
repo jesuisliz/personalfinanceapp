@@ -275,6 +275,15 @@ export async function fetchConversations(): Promise<ChatConversationSummary[]> {
   return res.json();
 }
 
+export async function renameConversation(id: number, title: string): Promise<ChatConversationSummary> {
+  const res = await fetch(`${API_BASE}/chat/conversations/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  return asJson(res, "Failed to rename conversation");
+}
+
 export async function fetchGoals(): Promise<SavingsGoal[]> {
   const res = await fetch(`${API_BASE}/goals`);
   if (!res.ok) throw new Error("Failed to load goals");

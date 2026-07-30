@@ -11,8 +11,8 @@ from app.chat.service import _cents_to_dollars, answer_question
 from app.chat.tools import build_tool_schemas, dispatch_tool_call, resolve_category_id
 from app.db import Base
 from app.models import Account, Category, ChatConversation, ChatMessage, CurrentBalance, SavingsGoal, Transaction
-from app.routers.chat import get_conversation_messages, list_conversations
-from app.schemas import ToolCallOut
+from app.routers.chat import get_conversation_messages, list_conversations, rename_conversation
+from app.schemas import ChatConversationUpdate, ToolCallOut
 
 # --- fixtures / helpers (mirrors the pattern in test_dashboard.py) ---
 
@@ -563,3 +563,34 @@ def test_list_conversations_empty_when_none_exist():
     session = make_session()
 
     assert list_conversations(db=session) == []
+
+
+# --- Phase 6 M4: PATCH /chat/conversations/{id} ---
+
+
+def test_history_rename_conversation_updates_title():
+    session = make_session()
+    conversation = history.create_conversation(session, "original title")
+
+    renamed = history.rename_conversation(session, conversation.id, "new title")
+
+    assert renamed.title == "new title"
+    assert session.get(ChatConversation, conversation.id).title == "new title"
+
+
+def test_rename_conversation_router_updates_title():
+    session = make_session()
+    conversation = history.create_conversation(session, "original title")
+
+    result = rename_conversation(conversation.id, ChatConversationUpdate(title="new title"), db=session)
+
+    assert result.title == "new title"
+
+
+def test_rename_conversation_unknown_id_returns_404():
+    session = make_session()
+
+    with pytest.raises(HTTPException) as exc_info:
+        rename_conversation(999, ChatConversationUpdate(title="new title"), db=session)
+
+    assert exc_info.value.status_code == 404

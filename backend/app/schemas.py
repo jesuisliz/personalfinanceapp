@@ -153,6 +153,10 @@ class ChatConversationOut(BaseModel):
     updated_at: datetime
 
 
+class ChatConversationUpdate(BaseModel):
+    title: str
+
+
 class SavingsGoalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
