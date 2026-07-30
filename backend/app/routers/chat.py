@@ -7,7 +7,7 @@ from app.chat import history
 from app.chat.service import answer_question
 from app.db import get_db
 from app.models import ChatConversation
-from app.schemas import ChatMessageOut, ChatReplyOut, ChatRequestIn, ToolCallOut
+from app.schemas import ChatConversationOut, ChatMessageOut, ChatReplyOut, ChatRequestIn, ToolCallOut
 
 router = APIRouter()
 
@@ -18,6 +18,11 @@ def chat(body: ChatRequestIn, db: Session = Depends(get_db)):
         return answer_question(db, body.message, body.history, conversation_id=body.conversation_id)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/chat/conversations", response_model=list[ChatConversationOut])
+def list_conversations(db: Session = Depends(get_db)):
+    return history.list_conversations(db)
 
 
 @router.get("/chat/conversations/{conversation_id}/messages", response_model=list[ChatMessageOut])

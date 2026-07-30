@@ -145,6 +145,14 @@ class ChatMessageOut(BaseModel):
     tool_calls: list[ToolCallOut]
 
 
+class ChatConversationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    updated_at: datetime
+
+
 class SavingsGoalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

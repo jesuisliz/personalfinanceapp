@@ -84,6 +84,12 @@ export interface ChatHistoryMessage {
   tool_calls: ToolCall[];
 }
 
+export interface ChatConversationSummary {
+  id: number;
+  title: string;
+  updated_at: string;
+}
+
 export interface SavingsGoal {
   id: number;
   name: string;
@@ -261,6 +267,12 @@ export async function sendChatMessage(
 export async function fetchConversationMessages(conversationId: number): Promise<ChatHistoryMessage[]> {
   const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/messages`);
   return asJson(res, "Failed to load conversation history");
+}
+
+export async function fetchConversations(): Promise<ChatConversationSummary[]> {
+  const res = await fetch(`${API_BASE}/chat/conversations`);
+  if (!res.ok) throw new Error("Failed to load conversations");
+  return res.json();
 }
 
 export async function fetchGoals(): Promise<SavingsGoal[]> {

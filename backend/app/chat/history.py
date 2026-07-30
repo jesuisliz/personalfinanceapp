@@ -52,3 +52,7 @@ def get_conversation_messages(session: Session, conversation_id: int) -> list[Ch
             .order_by(ChatMessage.created_at.asc())
         ).scalars()
     )
+
+
+def list_conversations(session: Session) -> list[ChatConversation]:
+    return list(session.execute(select(ChatConversation).order_by(ChatConversation.updated_at.desc())).scalars())

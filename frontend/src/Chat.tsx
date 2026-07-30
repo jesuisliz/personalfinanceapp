@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
-import { fetchConversationMessages, sendChatMessage, type ChatMessage as ApiChatMessage, type ToolCall } from "./api";
-import { formatAmount } from "./format";
-import { Card, PrimaryButton, inputClass } from "./ui";
+import {
+  fetchConversationMessages,
+  fetchConversations,
+  sendChatMessage,
+  type ChatConversationSummary,
+  type ChatMessage as ApiChatMessage,
+  type ToolCall,
+} from "./api";
+import { formatAmount, formatRelativeTime } from "./format";
+import { Card, PrimaryButton, SecondaryButton, inputClass } from "./ui";
 
 const CONVERSATION_ID_KEY = "chat_conversation_id";
 
@@ -128,27 +135,55 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [conversationId, setConversationId] = useState<number | null>(null);
+  const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
 
-  useEffect(() => {
-    const savedId = localStorage.getItem(CONVERSATION_ID_KEY);
-    if (savedId === null) {
-      setHistoryLoading(false);
-      return;
-    }
+  function refreshConversations() {
+    fetchConversations()
+      .then(setConversations)
+      .catch(() => {
+        // Non-critical: the list is a convenience, not required for chatting.
+      });
+  }
 
-    const id = Number(savedId);
-    fetchConversationMessages(id)
+  function loadConversation(id: number) {
+    return fetchConversationMessages(id)
       .then((history) => {
         setConversationId(id);
+        localStorage.setItem(CONVERSATION_ID_KEY, String(id));
         setMessages(history.map((m) => ({ role: m.role, content: m.content, toolCalls: m.tool_calls })));
       })
       .catch(() => {
         // Stale/deleted conversation (e.g. the DB was reset) -- fall back to a clean chat
         // rather than surfacing an error for something the user didn't do.
         localStorage.removeItem(CONVERSATION_ID_KEY);
-      })
-      .finally(() => setHistoryLoading(false));
+        setConversationId(null);
+        setMessages([]);
+      });
+  }
+
+  useEffect(() => {
+    refreshConversations();
+
+    const savedId = localStorage.getItem(CONVERSATION_ID_KEY);
+    if (savedId === null) {
+      setHistoryLoading(false);
+      return;
+    }
+
+    loadConversation(Number(savedId)).finally(() => setHistoryLoading(false));
   }, []);
+
+  function handleNewConversation() {
+    setConversationId(null);
+    setMessages([]);
+    localStorage.removeItem(CONVERSATION_ID_KEY);
+  }
+
+  function handleSelectConversation(id: number) {
+    if (id === conversationId || loading || historyLoading) return;
+    setHistoryLoading(true);
+    loadConversation(id).finally(() => setHistoryLoading(false));
+  }
 
   async function handleSend() {
     const text = input.trim();
@@ -167,6 +202,7 @@ export default function Chat() {
       setConversationId(reply.conversation_id);
       localStorage.setItem(CONVERSATION_ID_KEY, String(reply.conversation_id));
       setMessages((prev) => [...prev, { role: "assistant", content: reply.reply, toolCalls: reply.tool_calls }]);
+      refreshConversations();
     } catch (err) {
       setMessages((prev) => [...prev, { role: "system", content: String(err) }]);
     } finally {
@@ -175,55 +211,78 @@ export default function Chat() {
   }
 
   return (
-    <div className="max-w-3xl">
-      <Card className="mb-4 min-h-[300px] space-y-4">
-        {historyLoading ? (
-          <p className="text-ink-muted text-sm">Loading conversation...</p>
-        ) : messages.length === 0 ? (
-          <p className="text-ink-muted text-sm">
-            Ask a question about your spending, e.g. &quot;How much did I spend eating out last month?&quot;
-          </p>
-        ) : (
-          messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
-              <div
-                className={`inline-block max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                  m.role === "user"
-                    ? "bg-accent text-canvas"
-                    : m.role === "system"
-                      ? "bg-critical/15 text-critical border border-critical/40"
-                      : "bg-surface-2 text-ink"
-                }`}
-              >
-                {m.content}
-              </div>
-              {m.toolCalls && m.toolCalls.length > 0 && (
-                <div className="mt-1 text-left">
-                  {m.toolCalls.map((tc, j) => (
-                    <ToolResultTable key={j} toolCall={tc} />
-                  ))}
-                </div>
-              )}
-            </div>
-          ))
-        )}
-        {loading && <p className="text-ink-muted text-sm">Thinking...</p>}
-      </Card>
+    <div className="max-w-5xl flex gap-4">
+      <div className="w-56 shrink-0">
+        <div className="text-xs font-semibold tracking-widest uppercase text-ink-muted mb-2">Conversations</div>
+        <SecondaryButton className="w-full mb-2" onClick={handleNewConversation} disabled={loading || historyLoading}>
+          New Conversation
+        </SecondaryButton>
+        <div className="space-y-1">
+          {conversations.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => handleSelectConversation(c.id)}
+              className={`w-full text-left rounded-lg px-2 py-1.5 text-sm transition-colors ${
+                c.id === conversationId ? "bg-surface-2 text-ink" : "text-ink-secondary hover:bg-surface-2"
+              }`}
+            >
+              <div className="truncate">{c.title}</div>
+              <div className="text-xs text-ink-muted">{formatRelativeTime(c.updated_at)}</div>
+            </button>
+          ))}
+        </div>
+      </div>
 
-      <div className="flex gap-2">
-        <input
-          className={`${inputClass} flex-1 px-3 py-2`}
-          placeholder="Ask about your spending..."
-          value={input}
-          disabled={historyLoading}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSend();
-          }}
-        />
-        <PrimaryButton className="px-4 py-2" onClick={handleSend} disabled={loading || historyLoading || !input.trim()}>
-          Send
-        </PrimaryButton>
+      <div className="flex-1">
+        <Card className="mb-4 min-h-[300px] space-y-4">
+          {historyLoading ? (
+            <p className="text-ink-muted text-sm">Loading conversation...</p>
+          ) : messages.length === 0 ? (
+            <p className="text-ink-muted text-sm">
+              Ask a question about your spending, e.g. &quot;How much did I spend eating out last month?&quot;
+            </p>
+          ) : (
+            messages.map((m, i) => (
+              <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
+                <div
+                  className={`inline-block max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                    m.role === "user"
+                      ? "bg-accent text-canvas"
+                      : m.role === "system"
+                        ? "bg-critical/15 text-critical border border-critical/40"
+                        : "bg-surface-2 text-ink"
+                  }`}
+                >
+                  {m.content}
+                </div>
+                {m.toolCalls && m.toolCalls.length > 0 && (
+                  <div className="mt-1 text-left">
+                    {m.toolCalls.map((tc, j) => (
+                      <ToolResultTable key={j} toolCall={tc} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+          {loading && <p className="text-ink-muted text-sm">Thinking...</p>}
+        </Card>
+
+        <div className="flex gap-2">
+          <input
+            className={`${inputClass} flex-1 px-3 py-2`}
+            placeholder="Ask about your spending..."
+            value={input}
+            disabled={historyLoading}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSend();
+            }}
+          />
+          <PrimaryButton className="px-4 py-2" onClick={handleSend} disabled={loading || historyLoading || !input.trim()}>
+            Send
+          </PrimaryButton>
+        </div>
       </div>
     </div>
   );

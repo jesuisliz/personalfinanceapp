@@ -11,7 +11,7 @@ from app.chat.service import _cents_to_dollars, answer_question
 from app.chat.tools import build_tool_schemas, dispatch_tool_call, resolve_category_id
 from app.db import Base
 from app.models import Account, Category, ChatConversation, ChatMessage, CurrentBalance, SavingsGoal, Transaction
-from app.routers.chat import get_conversation_messages
+from app.routers.chat import get_conversation_messages, list_conversations
 from app.schemas import ToolCallOut
 
 # --- fixtures / helpers (mirrors the pattern in test_dashboard.py) ---
@@ -541,3 +541,25 @@ def test_get_conversation_messages_unknown_id_returns_404():
         get_conversation_messages(999, db=session)
 
     assert exc_info.value.status_code == 404
+
+
+# --- Phase 6 M3: GET /chat/conversations ---
+
+
+def test_list_conversations_ordered_by_most_recently_updated():
+    session = make_session()
+    older = history.create_conversation(session, "first conversation")
+    newer = history.create_conversation(session, "second conversation")
+    # Touch the older one again so it becomes the most recently updated.
+    history.append_message(session, older.id, "user", "another message")
+
+    result = list_conversations(db=session)
+
+    assert [c.id for c in result] == [older.id, newer.id]
+    assert result[0].title == "first conversation"
+
+
+def test_list_conversations_empty_when_none_exist():
+    session = make_session()
+
+    assert list_conversations(db=session) == []
