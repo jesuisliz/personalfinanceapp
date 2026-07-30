@@ -18,7 +18,7 @@ import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
 import { Card, SecondaryButton, inputClass } from "./ui";
-import { categoryDotColor } from "./categoryColor";
+import { CategoryDropdown } from "./CategoryDropdown";
 import {
   IconBank,
   IconBarChart,
@@ -121,8 +121,8 @@ export default function App() {
     }
   }
 
-  async function handleCategoryChange(txnId: number, value: string) {
-    await updateTransaction(txnId, { category_id: value === "" ? null : Number(value) });
+  async function handleCategoryChange(txnId: number, categoryId: number | null) {
+    await updateTransaction(txnId, { category_id: categoryId });
     reload();
   }
 
@@ -479,26 +479,11 @@ export default function App() {
                           )}
                         </td>
                         <td className="p-2">
-                          <div className="flex items-center gap-2">
-                            {t.category_id !== null && (
-                              <span
-                                className="h-2 w-2 rounded-full shrink-0"
-                                style={{ backgroundColor: categoryDotColor(t.category_id) }}
-                              />
-                            )}
-                            <select
-                              className={`${inputClass} bg-canvas`}
-                              value={t.category_id ?? ""}
-                              onChange={(e) => handleCategoryChange(t.id, e.target.value)}
-                            >
-                              <option value="">Uncategorized</option>
-                              {categories.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                          <CategoryDropdown
+                            categories={categories}
+                            value={t.category_id}
+                            onChange={(categoryId) => handleCategoryChange(t.id, categoryId)}
+                          />
                           {t.category_id && !categoryById.has(t.category_id) && (
                             <span className="text-critical text-xs ml-1">unknown category</span>
                           )}

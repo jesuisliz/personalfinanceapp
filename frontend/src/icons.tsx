@@ -151,3 +151,11 @@ export function IconInfo(props: IconProps) {
     </Icon>
   );
 }
+
+export function IconChevronDown(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </Icon>
+  );
+}
