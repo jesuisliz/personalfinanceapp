@@ -107,3 +107,47 @@ export function IconSend(props: IconProps) {
     </Icon>
   );
 }
+
+export function IconBank(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2 6.5 8 2.5l6 4M3 6.5v6M6 6.5v6M10 6.5v6M13 6.5v6M2 13.5h12" strokeLinecap="round" strokeLinejoin="round" />
+    </Icon>
+  );
+}
+
+export function IconTag(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8.5 2.5h4v4L5 14 2 11 8.5 2.5Z" strokeLinejoin="round" />
+      <circle cx="10.7" cy="4.8" r="0.8" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
+export function IconCalendar(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2.5 3.5h11v10h-11z" strokeLinejoin="round" />
+      <path d="M5 2v3M11 2v3M2.5 6.5h11" strokeLinecap="round" />
+    </Icon>
+  );
+}
+
+export function IconSearch(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="7" cy="7" r="4" />
+      <path d="M13.5 13.5 10 10" strokeLinecap="round" />
+    </Icon>
+  );
+}
+
+export function IconInfo(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="8" cy="8" r="5.8" />
+      <path d="M8 7.3v4M8 5.3v.1" strokeLinecap="round" />
+    </Icon>
+  );
+}

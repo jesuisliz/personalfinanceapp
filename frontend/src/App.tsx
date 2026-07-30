@@ -20,12 +20,17 @@ import Planning from "./Planning";
 import { Card, SecondaryButton, inputClass } from "./ui";
 import { categoryDotColor } from "./categoryColor";
 import {
+  IconBank,
   IconBarChart,
+  IconCalendar,
   IconCheck,
   IconCompass,
   IconDownload,
+  IconInfo,
   IconList,
   IconMessageCircle,
+  IconSearch,
+  IconTag,
   IconTransfer,
   IconUpload,
   IconX,
@@ -166,6 +171,16 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  function handleClearFilters() {
+    setSelectedAccountId(null);
+    setSelectedCategoryId(null);
+    setSelectedMonth(null);
+    setMerchantSearch("");
+    setMinAmount("");
+    setMaxAmount("");
+    setUncategorizedOnly(false);
+  }
+
   const accountById = new Map(accounts.map((a) => [a.id, a]));
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const transactionById = new Map(allTransactions.map((t) => [t.id, t]));
@@ -175,6 +190,14 @@ export default function App() {
   const merchantSearchLower = merchantSearch.trim().toLowerCase();
   const minAmountCents = minAmount.trim() === "" ? null : Math.round(Number(minAmount) * 100);
   const maxAmountCents = maxAmount.trim() === "" ? null : Math.round(Number(maxAmount) * 100);
+  const hasActiveFilters =
+    selectedAccountId !== null ||
+    selectedCategoryId !== null ||
+    selectedMonth !== null ||
+    merchantSearch.trim() !== "" ||
+    minAmount.trim() !== "" ||
+    maxAmount.trim() !== "" ||
+    uncategorizedOnly;
   const visibleTransactions = allTransactions
     .filter((t) => selectedAccountId === null || t.account_id === selectedAccountId)
     .filter((t) => !uncategorizedOnly || t.category_id === null)
@@ -270,9 +293,9 @@ export default function App() {
               </Card>
             )}
 
-            <div className="flex flex-wrap items-center gap-4 mb-4">
-              <label className="flex items-center gap-2">
-                <span className="font-medium text-ink-secondary text-sm">Account</span>
+            <div className="flex flex-wrap items-center gap-3 mb-3 bg-surface-2/50 border border-hairline rounded-xl px-3 py-2">
+              <label className="flex items-center gap-1.5" title="Account">
+                <IconBank className="text-ink-muted shrink-0" />
                 <select
                   className={inputClass}
                   value={selectedAccountId ?? "all"}
@@ -287,8 +310,8 @@ export default function App() {
                 </select>
               </label>
 
-              <label className="flex items-center gap-2">
-                <span className="font-medium text-ink-secondary text-sm">Category</span>
+              <label className="flex items-center gap-1.5" title="Category">
+                <IconTag className="text-ink-muted shrink-0" />
                 <select
                   className={inputClass}
                   value={selectedCategoryId ?? "all"}
@@ -303,8 +326,8 @@ export default function App() {
                 </select>
               </label>
 
-              <label className="flex items-center gap-2">
-                <span className="font-medium text-ink-secondary text-sm">Month</span>
+              <label className="flex items-center gap-1.5" title="Month">
+                <IconCalendar className="text-ink-muted shrink-0" />
                 <select
                   className={inputClass}
                   value={selectedMonth ?? "all"}
@@ -319,8 +342,8 @@ export default function App() {
                 </select>
               </label>
 
-              <label className="flex items-center gap-2">
-                <span className="font-medium text-ink-secondary text-sm">Merchant</span>
+              <label className="flex items-center gap-1.5" title="Merchant">
+                <IconSearch className="text-ink-muted shrink-0" />
                 <input
                   type="text"
                   className={inputClass}
@@ -330,8 +353,7 @@ export default function App() {
                 />
               </label>
 
-              <label className="flex items-center gap-2">
-                <span className="font-medium text-ink-secondary text-sm">Amount</span>
+              <label className="flex items-center gap-1.5">
                 <input
                   type="number"
                   step="0.01"
@@ -349,8 +371,11 @@ export default function App() {
                   value={maxAmount}
                   onChange={(e) => setMaxAmount(e.target.value)}
                 />
-                <span className="text-ink-muted text-xs italic" title="Amounts are negative for expenses, positive for income/refunds — e.g. -100 to -50 for expenses between $50 and $100">
-                  expenses are negative
+                <span
+                  className="text-ink-muted cursor-help"
+                  title="Amounts are negative for expenses, positive for income/refunds — e.g. -100 to -50 for expenses between $50 and $100"
+                >
+                  <IconInfo />
                 </span>
               </label>
 
@@ -364,6 +389,17 @@ export default function App() {
                 <span className="text-ink-secondary">Uncategorized only</span>
               </label>
 
+              {hasActiveFilters && (
+                <button
+                  className="ml-auto text-sm text-ink-muted hover:text-ink transition-colors underline decoration-dotted underline-offset-4"
+                  onClick={handleClearFilters}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 mb-4">
               <label className="cursor-pointer">
                 <span className="px-3 py-1.5 bg-accent text-canvas rounded-lg hover:bg-accent-strong transition-colors text-sm font-medium inline-flex items-center gap-1.5">
                   <IconUpload />
