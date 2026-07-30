@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   deleteConversation,
   fetchConversationMessages,
@@ -11,9 +11,16 @@ import {
 } from "./api";
 import { formatAmount, formatRelativeTime } from "./format";
 import { Card, PrimaryButton, SecondaryButton, inputClass } from "./ui";
-import { IconPlus, IconSend } from "./icons";
+import { IconMessageCircle, IconPlus, IconSend } from "./icons";
 
 const CONVERSATION_ID_KEY = "chat_conversation_id";
+
+const SUGGESTED_QUESTIONS = [
+  "Where is my money going?",
+  "How much did I spend eating out?",
+  "What categories increased?",
+  "How much could I save by reducing dining?",
+];
 
 interface DisplayMessage {
   role: "user" | "assistant" | "system";
@@ -160,6 +167,12 @@ export default function Chat() {
   const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
   const [editingConversationId, setEditingConversationId] = useState<number | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleSuggestedQuestion(question: string) {
+    setInput(question);
+    inputRef.current?.focus();
+  }
 
   function refreshConversations() {
     fetchConversations()
@@ -326,15 +339,35 @@ export default function Chat() {
       </div>
 
       <div className="flex-1">
-        <Card className="mb-4 min-h-[300px] space-y-4">
+        <Card className="mb-4 min-h-[300px] flex flex-col">
           {historyLoading ? (
-            <p className="text-ink-muted text-sm">Loading conversation...</p>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-ink-muted text-sm">Loading conversation...</p>
+            </div>
           ) : messages.length === 0 ? (
-            <p className="text-ink-muted text-sm">
-              Ask a question about your spending, e.g. &quot;How much did I spend eating out last month?&quot;
-            </p>
+            <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 py-8">
+              <IconMessageCircle size={32} className="text-ink-muted" />
+              <div>
+                <p className="text-ink font-medium">Ask about your spending</p>
+                <p className="text-ink-muted text-sm mt-1">
+                  e.g. &quot;How much did I spend eating out last month?&quot;
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-center gap-2 mt-1">
+                {SUGGESTED_QUESTIONS.map((q) => (
+                  <button
+                    key={q}
+                    className="text-sm text-ink-secondary bg-surface-2 border border-hairline rounded-full px-3 py-1.5 hover:border-hairline-strong hover:text-ink transition-colors"
+                    onClick={() => handleSuggestedQuestion(q)}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : (
-            messages.map((m, i) => (
+            <div className="space-y-4">
+            {messages.map((m, i) => (
               <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
                 <div
                   className={`inline-block max-w-[85%] rounded-xl px-3 py-2 text-sm ${
@@ -355,13 +388,15 @@ export default function Chat() {
                   </div>
                 )}
               </div>
-            ))
+            ))}
+            </div>
           )}
           {loading && <p className="text-ink-muted text-sm">Thinking...</p>}
         </Card>
 
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             className={`${inputClass} flex-1 px-3 py-2`}
             placeholder="Ask about your spending..."
             value={input}
