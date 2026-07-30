@@ -1,6 +1,6 @@
 # Low-Level Design — Personal Finance App (Phase 6: Chat History Persistence)
 
-**Status: M1 built and verified (2026-07-30). M2-M5 designed, not yet built.**
+**Status: M1 and M2 built and verified (2026-07-30). M3-M5 designed, not yet built.**
 
 Companion to `hld_claude.md` and `lld_phase4_claude.md` (the chatbot this phase extends). Not an original `CLAUDE.md` roadmap item — a user-requested evolution of Phase 4: "I kinda like how my experience is with ChatGPT or Claude chat — keeping history." Today, chat history is in-memory only (`frontend/src/Chat.tsx` React state, resent each turn, no DB table) — a deliberate Phase 4 scope-down, not an oversight. This phase makes it persistent, with multiple named, browsable, switchable conversations, the way ChatGPT/Claude's own UI works.
 
@@ -83,6 +83,8 @@ Refreshing the page no longer loses your conversation.
 - **API**: `GET /chat/conversations/{id}/messages`.
 - **Frontend**: on mount, `Chat.tsx` checks `localStorage` for a saved `conversation_id`; if present, fetches and renders its full history (prose + tool-call tables) before allowing new input; if absent (first-ever visit), starts empty exactly as today. Every new message updates the `localStorage` pointer.
 - **Acceptance test**: send 2-3 messages, refresh the browser tab, confirm all prior messages and their tool-call tables reappear in order; a brand-new browser profile (no `localStorage` entry) still gets a clean empty chat with no error.
+
+**Built and verified 2026-07-30.** Added `history.get_conversation_messages` and `GET /chat/conversations/{id}/messages` (404 if the id doesn't exist), plus a `ChatMessageOut` schema. `Chat.tsx` reads a `chat_conversation_id` `localStorage` key on mount; if present, fetches and renders the full history (disabling input with a "Loading conversation..." state until it resolves) before allowing new input; a fetch failure (e.g. a stale id pointing at a deleted conversation) clears the `localStorage` key and falls back to an empty chat rather than surfacing an error. 2 new backend tests (142 total), tsc/oxlint/vitest clean. Live-verified in the browser: sent 2 messages, navigated away and back (a full remount), and the same 2 exchanges reappeared in order with no console errors -- independently confirmed via raw SQL that the reloaded conversation's rows matched exactly. The very first navigation of the session (no `localStorage` entry yet) also confirmed the plain empty-state path still works unchanged. Test rows deleted from `finance.db` afterward.
 
 ### M3 — Conversation list + explicit "New Conversation"
 

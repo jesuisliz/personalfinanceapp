@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ChatConversation, ChatMessage
@@ -41,3 +42,13 @@ def append_message(
     session.commit()
     session.refresh(message)
     return message
+
+
+def get_conversation_messages(session: Session, conversation_id: int) -> list[ChatMessage]:
+    return list(
+        session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.conversation_id == conversation_id)
+            .order_by(ChatMessage.created_at.asc())
+        ).scalars()
+    )

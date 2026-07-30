@@ -2,13 +2,17 @@ import json
 from datetime import date, datetime
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app.chat import history
 from app.chat.service import _cents_to_dollars, answer_question
 from app.chat.tools import build_tool_schemas, dispatch_tool_call, resolve_category_id
 from app.db import Base
 from app.models import Account, Category, ChatConversation, ChatMessage, CurrentBalance, SavingsGoal, Transaction
+from app.routers.chat import get_conversation_messages
+from app.schemas import ToolCallOut
 
 # --- fixtures / helpers (mirrors the pattern in test_dashboard.py) ---
 
@@ -511,3 +515,29 @@ def test_answer_question_unknown_conversation_id_raises():
 
     with pytest.raises(ValueError):
         answer_question(session, "hi", history=[], client=client, conversation_id=999)
+
+
+# --- Phase 6 M2: GET /chat/conversations/{id}/messages ---
+
+
+def test_get_conversation_messages_returns_in_order_with_tool_calls():
+    session = make_session()
+    conversation = history.create_conversation(session, "how much did I spend?")
+    history.append_message(session, conversation.id, "user", "how much did I spend?")
+    tool_call = ToolCallOut(name="get_monthly_summary", arguments={"months": 1}, result={"expense_cents": 5000})
+    history.append_message(session, conversation.id, "assistant", "You spent $50.", tool_calls=[tool_call])
+
+    result = get_conversation_messages(conversation.id, db=session)
+
+    assert [m.role for m in result] == ["user", "assistant"]
+    assert result[0].tool_calls == []
+    assert result[1].tool_calls == [tool_call]
+
+
+def test_get_conversation_messages_unknown_id_returns_404():
+    session = make_session()
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_conversation_messages(999, db=session)
+
+    assert exc_info.value.status_code == 404

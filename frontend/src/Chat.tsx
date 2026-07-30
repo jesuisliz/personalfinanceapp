@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { sendChatMessage, type ChatMessage as ApiChatMessage, type ToolCall } from "./api";
+import { useEffect, useState } from "react";
+import { fetchConversationMessages, sendChatMessage, type ChatMessage as ApiChatMessage, type ToolCall } from "./api";
 import { formatAmount } from "./format";
 import { Card, PrimaryButton, inputClass } from "./ui";
+
+const CONVERSATION_ID_KEY = "chat_conversation_id";
 
 interface DisplayMessage {
   role: "user" | "assistant" | "system";
@@ -124,14 +126,33 @@ export default function Chat() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  // In-memory only for now -- M1 deliberately doesn't persist this across a page
-  // refresh (that's M2). Keeping it here just makes multi-turn messages within one
-  // browser session land in the same ChatConversation row instead of a new one per turn.
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [conversationId, setConversationId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const savedId = localStorage.getItem(CONVERSATION_ID_KEY);
+    if (savedId === null) {
+      setHistoryLoading(false);
+      return;
+    }
+
+    const id = Number(savedId);
+    fetchConversationMessages(id)
+      .then((history) => {
+        setConversationId(id);
+        setMessages(history.map((m) => ({ role: m.role, content: m.content, toolCalls: m.tool_calls })));
+      })
+      .catch(() => {
+        // Stale/deleted conversation (e.g. the DB was reset) -- fall back to a clean chat
+        // rather than surfacing an error for something the user didn't do.
+        localStorage.removeItem(CONVERSATION_ID_KEY);
+      })
+      .finally(() => setHistoryLoading(false));
+  }, []);
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text || loading || historyLoading) return;
 
     const history: ApiChatMessage[] = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -144,6 +165,7 @@ export default function Chat() {
     try {
       const reply = await sendChatMessage(text, history, conversationId);
       setConversationId(reply.conversation_id);
+      localStorage.setItem(CONVERSATION_ID_KEY, String(reply.conversation_id));
       setMessages((prev) => [...prev, { role: "assistant", content: reply.reply, toolCalls: reply.tool_calls }]);
     } catch (err) {
       setMessages((prev) => [...prev, { role: "system", content: String(err) }]);
@@ -155,7 +177,9 @@ export default function Chat() {
   return (
     <div className="max-w-3xl">
       <Card className="mb-4 min-h-[300px] space-y-4">
-        {messages.length === 0 ? (
+        {historyLoading ? (
+          <p className="text-ink-muted text-sm">Loading conversation...</p>
+        ) : messages.length === 0 ? (
           <p className="text-ink-muted text-sm">
             Ask a question about your spending, e.g. &quot;How much did I spend eating out last month?&quot;
           </p>
@@ -191,12 +215,13 @@ export default function Chat() {
           className={`${inputClass} flex-1 px-3 py-2`}
           placeholder="Ask about your spending..."
           value={input}
+          disabled={historyLoading}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSend();
           }}
         />
-        <PrimaryButton className="px-4 py-2" onClick={handleSend} disabled={loading || !input.trim()}>
+        <PrimaryButton className="px-4 py-2" onClick={handleSend} disabled={loading || historyLoading || !input.trim()}>
           Send
         </PrimaryButton>
       </div>

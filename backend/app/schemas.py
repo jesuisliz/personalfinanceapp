@@ -139,6 +139,12 @@ class ChatReplyOut(BaseModel):
     conversation_id: int
 
 
+class ChatMessageOut(BaseModel):
+    role: str
+    content: str
+    tool_calls: list[ToolCallOut]
+
+
 class SavingsGoalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

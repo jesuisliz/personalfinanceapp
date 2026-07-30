@@ -78,6 +78,12 @@ export interface ChatReply {
   conversation_id: number;
 }
 
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  tool_calls: ToolCall[];
+}
+
 export interface SavingsGoal {
   id: number;
   name: string;
@@ -250,6 +256,11 @@ export async function sendChatMessage(
     body: JSON.stringify({ message, history, conversation_id: conversationId }),
   });
   return asJson(res, "Chat request failed");
+}
+
+export async function fetchConversationMessages(conversationId: number): Promise<ChatHistoryMessage[]> {
+  const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/messages`);
+  return asJson(res, "Failed to load conversation history");
 }
 
 export async function fetchGoals(): Promise<SavingsGoal[]> {
