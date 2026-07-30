@@ -309,7 +309,9 @@ export default function Chat() {
                       handleDeleteConversation(c.id);
                     }}
                   >
-                    &times;
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3">
+                      <path d="M3 4h10M6.5 4V2.5h3V4M4 4l.5 9.5a1 1 0 0 0 1 .5h5a1 1 0 0 0 1-1L12 4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </button>
                 </div>
               )}
