@@ -13,7 +13,7 @@ import {
   type Transaction,
   type TransferMatch,
 } from "./api";
-import { formatAmount } from "./format";
+import { formatAmount, transactionsToCsv } from "./format";
 import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
@@ -141,6 +141,17 @@ export default function App() {
   async function handleTransferDecision(matchId: number, status: "confirmed" | "rejected") {
     await updateTransferMatch(matchId, status);
     reload();
+  }
+
+  function handleExportCsv() {
+    const csv = transactionsToCsv(visibleTransactions, accountById, categoryById);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transactions_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const accountById = new Map(accounts.map((a) => [a.id, a]));
@@ -337,6 +348,8 @@ export default function App() {
               </label>
 
               <SecondaryButton onClick={handleDetectTransfers}>Detect Transfers</SecondaryButton>
+
+              <SecondaryButton onClick={handleExportCsv}>Export CSV</SecondaryButton>
 
               {uploadStatus && <span className="text-sm text-ink-muted">{uploadStatus}</span>}
             </div>
