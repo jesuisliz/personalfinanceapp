@@ -1,11 +1,19 @@
 import type { ReactNode } from "react";
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={`bg-surface border border-hairline rounded-2xl p-4 ${className}`}>
-      {children}
-    </div>
-  );
+export function Card({
+  children,
+  className = "",
+  variant = "default",
+}: {
+  children: ReactNode;
+  className?: string;
+  variant?: "default" | "elevated";
+}) {
+  const variantClass =
+    variant === "elevated"
+      ? "bg-surface border border-hairline-strong shadow-[0_8px_24px_-16px_rgba(0,0,0,0.6)]"
+      : "bg-surface border border-hairline";
+  return <div className={`${variantClass} rounded-2xl p-4 ${className}`}>{children}</div>;
 }
 
 export function SectionLabel({ children }: { children: ReactNode }) {
@@ -26,9 +34,9 @@ export function StatTile({
   valueColor?: string;
 }) {
   return (
-    <Card>
+    <Card variant="elevated">
       <div className="text-sm text-ink-secondary">{label}</div>
-      <div className="text-2xl font-semibold tracking-tight" style={{ color: valueColor ?? "var(--color-ink)" }}>
+      <div className="text-3xl font-semibold tracking-tight" style={{ color: valueColor ?? "var(--color-ink)" }}>
         {value}
       </div>
     </Card>
