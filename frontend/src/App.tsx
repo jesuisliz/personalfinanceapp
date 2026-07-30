@@ -18,12 +18,24 @@ import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
 import { Card, SecondaryButton, inputClass } from "./ui";
+import { categoryDotColor } from "./categoryColor";
+import {
+  IconBarChart,
+  IconCheck,
+  IconCompass,
+  IconDownload,
+  IconList,
+  IconMessageCircle,
+  IconTransfer,
+  IconUpload,
+  IconX,
+} from "./icons";
 
 const TABS = [
-  { key: "transactions", label: "Transactions" },
-  { key: "dashboard", label: "Dashboard" },
-  { key: "chat", label: "Chat" },
-  { key: "planning", label: "Planning" },
+  { key: "transactions", label: "Transactions", icon: IconList },
+  { key: "dashboard", label: "Dashboard", icon: IconBarChart },
+  { key: "chat", label: "Chat", icon: IconMessageCircle },
+  { key: "planning", label: "Planning", icon: IconCompass },
 ] as const;
 
 type View = (typeof TABS)[number]["key"];
@@ -184,19 +196,25 @@ export default function App() {
           </div>
 
           <div className="flex bg-surface border border-hairline rounded-xl p-1 text-sm font-medium gap-1">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                className={`px-3 py-1.5 rounded-lg transition-colors ${
-                  view === t.key
-                    ? "bg-accent text-canvas"
-                    : "text-ink-secondary hover:text-ink hover:bg-surface-2"
-                }`}
-                onClick={() => setView(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
+            {TABS.map((t) => {
+              const TabIcon = t.icon;
+              return (
+                <button
+                  key={t.key}
+                  className={`px-3 py-1.5 rounded-lg transition-colors ${
+                    view === t.key
+                      ? "bg-accent text-canvas"
+                      : "text-ink-secondary hover:text-ink hover:bg-surface-2"
+                  }`}
+                  onClick={() => setView(t.key)}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <TabIcon />
+                    {t.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -233,10 +251,16 @@ export default function App() {
                             className="px-3 py-1 bg-good text-canvas rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
                             onClick={() => handleTransferDecision(m.id, "confirmed")}
                           >
-                            Confirm
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconCheck />
+                              Confirm
+                            </span>
                           </button>
                           <SecondaryButton onClick={() => handleTransferDecision(m.id, "rejected")}>
-                            Reject
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconX />
+                              Reject
+                            </span>
                           </SecondaryButton>
                         </div>
                       </div>
@@ -341,15 +365,26 @@ export default function App() {
               </label>
 
               <label className="cursor-pointer">
-                <span className="px-3 py-1.5 bg-accent text-canvas rounded-lg hover:bg-accent-strong transition-colors text-sm font-medium inline-block">
+                <span className="px-3 py-1.5 bg-accent text-canvas rounded-lg hover:bg-accent-strong transition-colors text-sm font-medium inline-flex items-center gap-1.5">
+                  <IconUpload />
                   Import CSV
                 </span>
                 <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
               </label>
 
-              <SecondaryButton onClick={handleDetectTransfers}>Detect Transfers</SecondaryButton>
+              <SecondaryButton onClick={handleDetectTransfers}>
+                <span className="inline-flex items-center gap-1.5">
+                  <IconTransfer />
+                  Detect Transfers
+                </span>
+              </SecondaryButton>
 
-              <SecondaryButton onClick={handleExportCsv}>Export CSV</SecondaryButton>
+              <SecondaryButton onClick={handleExportCsv}>
+                <span className="inline-flex items-center gap-1.5">
+                  <IconDownload />
+                  Export CSV
+                </span>
+              </SecondaryButton>
 
               {uploadStatus && <span className="text-sm text-ink-muted">{uploadStatus}</span>}
             </div>
@@ -408,18 +443,26 @@ export default function App() {
                           )}
                         </td>
                         <td className="p-2">
-                          <select
-                            className={`${inputClass} bg-canvas`}
-                            value={t.category_id ?? ""}
-                            onChange={(e) => handleCategoryChange(t.id, e.target.value)}
-                          >
-                            <option value="">Uncategorized</option>
-                            {categories.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex items-center gap-2">
+                            {t.category_id !== null && (
+                              <span
+                                className="h-2 w-2 rounded-full shrink-0"
+                                style={{ backgroundColor: categoryDotColor(t.category_id) }}
+                              />
+                            )}
+                            <select
+                              className={`${inputClass} bg-canvas`}
+                              value={t.category_id ?? ""}
+                              onChange={(e) => handleCategoryChange(t.id, e.target.value)}
+                            >
+                              <option value="">Uncategorized</option>
+                              {categories.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                           {t.category_id && !categoryById.has(t.category_id) && (
                             <span className="text-critical text-xs ml-1">unknown category</span>
                           )}

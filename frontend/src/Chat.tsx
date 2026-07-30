@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { formatAmount, formatRelativeTime } from "./format";
 import { Card, PrimaryButton, SecondaryButton, inputClass } from "./ui";
+import { IconPlus, IconSend } from "./icons";
 
 const CONVERSATION_ID_KEY = "chat_conversation_id";
 
@@ -264,7 +265,10 @@ export default function Chat() {
       <div className="w-56 shrink-0">
         <div className="text-xs font-semibold tracking-widest uppercase text-ink-muted mb-2">Conversations</div>
         <SecondaryButton className="w-full mb-2" onClick={handleNewConversation} disabled={loading || historyLoading}>
-          New Conversation
+          <span className="inline-flex items-center justify-center gap-1.5 w-full">
+            <IconPlus />
+            New Conversation
+          </span>
         </SecondaryButton>
         <div className="space-y-1">
           {conversations.map((c) => (
@@ -368,7 +372,10 @@ export default function Chat() {
             }}
           />
           <PrimaryButton className="px-4 py-2" onClick={handleSend} disabled={loading || historyLoading || !input.trim()}>
-            Send
+            <span className="inline-flex items-center gap-1.5">
+              <IconSend />
+              Send
+            </span>
           </PrimaryButton>
         </div>
       </div>
