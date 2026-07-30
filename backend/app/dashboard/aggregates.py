@@ -209,6 +209,40 @@ def estimate_category_reduction_savings(
     )
 
 
+def merchant_transactions(
+    session: Session, merchant_search: str, months: int | None, account_id: int | None
+) -> list[Transaction]:
+    """Every transaction whose description mentions `merchant_search` (case-insensitive
+    substring against clean_description falling back to description, the same matching
+    rule the Transactions page's own Merchant filter already uses), optionally restricted
+    to the trailing `months` months. `months=None` searches all time. Unlike
+    category_transactions, this does not filter through _load_real_transactions - a
+    merchant/payee search is about a real-world counterparty, and should include the
+    money whether or not it happens to be flagged as an internal transfer."""
+    search_lower = merchant_search.lower()
+
+    month_key_set = None
+    if months is not None:
+        latest = latest_transaction_date(session, account_id)
+        if latest is None:
+            return []
+        month_key_set = set(_trailing_month_keys(latest, months))
+
+    stmt = select(Transaction)
+    if account_id is not None:
+        stmt = stmt.where(Transaction.account_id == account_id)
+    transactions = session.execute(stmt).scalars().all()
+
+    matches = [
+        t
+        for t in transactions
+        if search_lower in (t.clean_description or t.description).lower()
+        and (month_key_set is None or _month_key(t.date) in month_key_set)
+    ]
+    matches.sort(key=lambda t: t.date, reverse=True)
+    return matches
+
+
 def top_merchants(session: Session, month: str | None, account_id: int | None, limit: int) -> list[MerchantBreakdownOut]:
     """`month=None` returns all-time top merchants - used by the Dashboard's "All
     months" option."""

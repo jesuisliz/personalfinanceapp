@@ -7,6 +7,7 @@ from app.dashboard.aggregates import (
     category_transactions,
     category_trends,
     estimate_category_reduction_savings,
+    merchant_transactions,
     monthly_summary,
     non_spending_category_transactions,
     top_merchants,
@@ -150,6 +151,35 @@ def build_tool_schemas(session: Session) -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "get_merchant_transactions",
+                "description": (
+                    "Every transaction matching a merchant/payee name (case-insensitive partial "
+                    "match, e.g. 'Vanguard' or 'Amazon'), with a backend-computed total. Use this "
+                    "whenever a question names a specific merchant or payee rather than a category "
+                    "- includes the money whether or not it was categorized as a transfer, since a "
+                    "payee search is about a real-world counterparty. Pass `months` for a trailing "
+                    "N-month window (e.g. 6 for 'the past 6 months'), or omit it for all-time."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "merchant_search": {
+                            "type": "string",
+                            "description": "Merchant/payee name or partial name to search for, e.g. 'Vanguard'",
+                        },
+                        "months": {
+                            "type": ["integer", "null"],
+                            "description": "Trailing months, e.g. 6, or omit/null for all-time",
+                        },
+                        "account_id": {"type": ["integer", "null"]},
+                    },
+                    "required": ["merchant_search"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "get_savings_goals",
                 "description": (
                     "List all savings goals (including vacations -- a vacation is just a goal) "
@@ -253,6 +283,17 @@ def dispatch_tool_call(session: Session, name: str, arguments: dict) -> dict | l
             account_id,
         )
         return result.model_dump()
+
+    if name == "get_merchant_transactions":
+        rows = merchant_transactions(session, arguments["merchant_search"], arguments.get("months"), account_id)
+        return {
+            "total_cents": sum(t.amount_cents for t in rows),
+            "transaction_count": len(rows),
+            "transactions": [
+                {"date": t.date.isoformat(), "description": t.clean_description or t.description, "amount_cents": t.amount_cents}
+                for t in rows
+            ],
+        }
 
     if name == "get_savings_goals":
         goals = session.execute(select(SavingsGoal)).scalars().all()

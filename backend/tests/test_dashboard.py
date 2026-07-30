@@ -8,6 +8,7 @@ from app.dashboard.aggregates import (
     category_transactions,
     category_trends,
     estimate_category_reduction_savings,
+    merchant_transactions,
     monthly_summary,
     non_spending_category_transactions,
     top_merchants,
@@ -396,3 +397,85 @@ def test_estimate_savings_zero_fills_months_with_no_spend_in_that_category():
 
     # June has zero dining spend, so avg = 10000 / 2 = 5000, not 10000
     assert result.avg_monthly_cents == 5000
+
+
+def test_merchant_transactions_matches_case_insensitive_substring():
+    session = make_session()
+    account = make_account(session)
+    a = make_txn(session, account.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+    b = make_txn(
+        session, account.id, -50000, date(2026, 1, 5),
+        description="VANGUARD BUY DES:INVESTMENT ID:999", clean_description="Vanguard Investment Purchase",
+    )
+    make_txn(session, account.id, -1000, date(2026, 7, 1), description="Olive Garden")
+
+    result = merchant_transactions(session, "vanguard", months=None, account_id=None)
+
+    assert {t.id for t in result} == {a.id, b.id}
+
+
+def test_merchant_transactions_matches_clean_description_not_just_raw():
+    """A search term that only appears in the cleaned-up description (not the raw
+    bank text) must still match - clean_description is what the search checks first,
+    the same convention as the Transactions page's own Merchant filter."""
+    session = make_session()
+    account = make_account(session)
+    a = make_txn(
+        session, account.id, -50000, date(2026, 7, 1),
+        description="VANGUARD BUY DES:INVESTMENT ID:999", clean_description="Vanguard Investment Purchase",
+    )
+
+    result = merchant_transactions(session, "vanguard", months=None, account_id=None)
+
+    assert [t.id for t in result] == [a.id]
+
+
+def test_merchant_transactions_scoped_to_trailing_months():
+    session = make_session()
+    account = make_account(session)
+    recent = make_txn(session, account.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+    make_txn(session, account.id, -50000, date(2026, 1, 5), description="The Vanguard Group")  # outside window
+
+    result = merchant_transactions(session, "vanguard", months=1, account_id=None)
+
+    assert [t.id for t in result] == [recent.id]
+
+
+def test_merchant_transactions_all_time_when_months_omitted():
+    session = make_session()
+    account = make_account(session)
+    a = make_txn(session, account.id, -50000, date(2026, 1, 5), description="The Vanguard Group")
+    b = make_txn(session, account.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+
+    result = merchant_transactions(session, "vanguard", months=None, account_id=None)
+
+    assert {t.id for t in result} == {a.id, b.id}
+
+
+def test_merchant_transactions_includes_transfers_unlike_category_transactions():
+    """Unlike category_transactions, a merchant/payee search must include is_transfer
+    rows - the question is about a real-world counterparty, not a spending category."""
+    session = make_session()
+    account = make_account(session)
+    a = make_txn(session, account.id, -50000, date(2026, 7, 6), description="The Vanguard Group", is_transfer=True)
+
+    result = merchant_transactions(session, "vanguard", months=None, account_id=None)
+
+    assert [t.id for t in result] == [a.id]
+
+
+def test_merchant_transactions_scoped_by_account():
+    session = make_session()
+    checking = make_account(session, "Checking")
+    savings = make_account(session, "Savings")
+    checking_txn = make_txn(session, checking.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+    make_txn(session, savings.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+
+    result = merchant_transactions(session, "vanguard", months=None, account_id=checking.id)
+
+    assert [t.id for t in result] == [checking_txn.id]
+
+
+def test_merchant_transactions_empty_when_no_data():
+    session = make_session()
+    assert merchant_transactions(session, "vanguard", months=6, account_id=None) == []

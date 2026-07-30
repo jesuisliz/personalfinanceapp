@@ -271,6 +271,35 @@ def test_dispatch_estimate_category_reduction_savings():
     }
 
 
+def test_dispatch_get_merchant_transactions_computes_total_backend_side():
+    session = make_session()
+    account = make_account(session)
+    make_txn(session, account.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+    make_txn(
+        session, account.id, -500000, date(2026, 4, 14),
+        description="VANGUARD BUY DES:INVESTMENT ID:999", is_transfer=False,
+    )
+    make_txn(session, account.id, -1000, date(2026, 7, 1), description="Olive Garden")
+
+    result = dispatch_tool_call(session, "get_merchant_transactions", {"merchant_search": "vanguard"})
+
+    assert result["total_cents"] == -550000
+    assert result["transaction_count"] == 2
+    assert {t["description"] for t in result["transactions"]} == {"The Vanguard Group", "VANGUARD BUY DES:INVESTMENT ID:999"}
+
+
+def test_dispatch_get_merchant_transactions_respects_trailing_months():
+    session = make_session()
+    account = make_account(session)
+    make_txn(session, account.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+    make_txn(session, account.id, -50000, date(2026, 1, 5), description="The Vanguard Group")  # outside window
+
+    result = dispatch_tool_call(session, "get_merchant_transactions", {"merchant_search": "vanguard", "months": 1})
+
+    assert result["total_cents"] == -50000
+    assert result["transaction_count"] == 1
+
+
 def test_dispatch_unknown_tool_raises():
     session = make_session()
     with pytest.raises(ValueError):
@@ -393,6 +422,29 @@ def test_answer_question_executes_tool_call_against_real_data_then_replies():
     assert len(result.tool_calls) == 1
     assert result.tool_calls[0].name == "get_monthly_summary"
     assert result.tool_calls[0].result[0]["expense_cents"] == 5000
+
+
+def test_answer_question_merchant_search_total_arrives_precomputed():
+    """The whole point of get_merchant_transactions is that the model never sums the
+    matching rows itself - the tool result must already carry the total."""
+    session = make_session()
+    account = make_account(session)
+    make_txn(session, account.id, -50000, date(2026, 7, 6), description="The Vanguard Group")
+    make_txn(session, account.id, -50000, date(2026, 6, 3), description="The Vanguard Group")
+
+    tool_call = FakeToolCall(
+        "call_1", "get_merchant_transactions", json.dumps({"merchant_search": "Vanguard", "months": 6})
+    )
+    responses = [
+        FakeResponse(FakeMessage(content=None, tool_calls=[tool_call])),
+        FakeResponse(FakeMessage(content="You moved $1,000 to Vanguard over the past 6 months.")),
+    ]
+    client = FakeClient(responses)
+
+    result = answer_question(session, "how much did I move to Vanguard?", history=[], client=client)
+
+    assert result.tool_calls[0].result["total_cents"] == -100000
+    assert result.tool_calls[0].result["transaction_count"] == 2
 
 
 def test_answer_question_tool_error_is_surfaced_not_crashed():

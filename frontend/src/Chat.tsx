@@ -91,6 +91,25 @@ function ToolResultTable({ toolCall }: { toolCall: ToolCall }) {
     );
   }
 
+  if (name === "get_merchant_transactions" && result && typeof result === "object" && !Array.isArray(result)) {
+    const r = result as {
+      total_cents: number;
+      transaction_count: number;
+      transactions: { date: string; description: string; amount_cents: number }[];
+    };
+    return (
+      <div>
+        <p className="text-xs text-ink-muted mt-1">
+          {formatAmount(r.total_cents)} across {r.transaction_count} transaction{r.transaction_count === 1 ? "" : "s"}
+        </p>
+        <MiniTable
+          headers={["Date", "Description", "Amount"]}
+          rows={r.transactions.map((t) => [t.date, t.description, formatAmount(t.amount_cents)])}
+        />
+      </div>
+    );
+  }
+
   if (name === "get_category_trends" && result && typeof result === "object" && !Array.isArray(result)) {
     const trends = result as Record<string, { category_name: string; total_cents: number }[]>;
     return (
