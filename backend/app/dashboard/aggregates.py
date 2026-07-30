@@ -91,12 +91,14 @@ def monthly_summary(session: Session, months: int, account_id: int | None) -> li
     ]
 
 
-def category_breakdown(session: Session, month: str, account_id: int | None) -> list[CategoryBreakdownOut]:
+def category_breakdown(session: Session, month: str | None, account_id: int | None) -> list[CategoryBreakdownOut]:
+    """`month=None` returns an all-time breakdown across every transaction, not just
+    one month - used by the Dashboard's "All months" option."""
     category_names = {c.id: c.name for c in session.execute(select(Category)).scalars().all()}
     totals: dict[int | None, int] = defaultdict(int)
 
     for t in _load_real_transactions(session, account_id):
-        if t.amount_cents >= 0 or _month_key(t.date) != month:
+        if t.amount_cents >= 0 or (month is not None and _month_key(t.date) != month):
             continue
         totals[t.category_id] += -t.amount_cents
 
@@ -207,12 +209,14 @@ def estimate_category_reduction_savings(
     )
 
 
-def top_merchants(session: Session, month: str, account_id: int | None, limit: int) -> list[MerchantBreakdownOut]:
+def top_merchants(session: Session, month: str | None, account_id: int | None, limit: int) -> list[MerchantBreakdownOut]:
+    """`month=None` returns all-time top merchants - used by the Dashboard's "All
+    months" option."""
     totals: dict[str, int] = defaultdict(int)
     counts: dict[str, int] = defaultdict(int)
 
     for t in _load_real_transactions(session, account_id):
-        if t.amount_cents >= 0 or _month_key(t.date) != month:
+        if t.amount_cents >= 0 or (month is not None and _month_key(t.date) != month):
             continue
         merchant = t.clean_description or t.description
         totals[merchant] += -t.amount_cents

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -27,6 +27,7 @@ import { Card, StatTile, inputClass } from "./ui";
 
 const MONTHS_HISTORY = 6;
 const TOP_MERCHANTS_LIMIT = 10;
+const ALL_MONTHS_VALUE = "__all__";
 
 // Dark-mode steps from the dataviz reference palette (references/palette.md) —
 // categorical (identity: income vs expenses are distinct series)
@@ -105,6 +106,7 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [monthly, setMonthly] = useState<MonthlySummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const monthInitialized = useRef(false);
   const [categories, setCategories] = useState<CategoryBreakdown[]>([]);
   const [merchants, setMerchants] = useState<MerchantBreakdown[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<CategoryBreakdown | null>(null);
@@ -120,16 +122,22 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
       .then((result) => {
         setMonthly(result);
         setSelectedMonth((prev) => {
+          // "All months" (null) is an explicit user choice once initialized, not a
+          // sentinel for "not yet loaded" - don't override it on account switch.
+          if (monthInitialized.current && prev === null) return null;
           if (prev && result.some((r) => r.month === prev)) return prev;
           return result.length > 0 ? result[result.length - 1].month : null;
         });
+        monthInitialized.current = true;
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [selectedAccountId]);
 
   useEffect(() => {
-    if (selectedMonth === null) {
+    // selectedMonth === null is a valid "All months" selection once initialized -
+    // only skip fetching before the monthly summary has loaded at all.
+    if (monthly.length === 0) {
       setCategories([]);
       setMerchants([]);
       return;
@@ -143,10 +151,10 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
         setMerchants(merchantResult);
       })
       .catch((e) => setError(String(e)));
-  }, [selectedMonth, selectedAccountId]);
+  }, [selectedMonth, selectedAccountId, monthly.length]);
 
   useEffect(() => {
-    if (selectedCategory === null || selectedMonth === null) {
+    if (selectedCategory === null || monthly.length === 0) {
       setCategoryTransactions([]);
       return;
     }
@@ -155,7 +163,7 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
       .then(setCategoryTransactions)
       .catch((e) => setError(String(e)))
       .finally(() => setCategoryTransactionsLoading(false));
-  }, [selectedCategory, selectedMonth, selectedAccountId]);
+  }, [selectedCategory, selectedMonth, selectedAccountId, monthly.length]);
 
   function handleCategoryClick(key: string) {
     const clicked = categories.find((c) => categoryKey(c) === key) ?? null;
@@ -271,9 +279,10 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
             <span className="font-medium text-ink-secondary text-sm">Month</span>
             <select
               className={inputClass}
-              value={selectedMonth ?? ""}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              value={selectedMonth ?? ALL_MONTHS_VALUE}
+              onChange={(e) => setSelectedMonth(e.target.value === ALL_MONTHS_VALUE ? null : e.target.value)}
             >
+              <option value={ALL_MONTHS_VALUE}>All months</option>
               {monthly.map((m) => (
                 <option key={m.month} value={m.month}>
                   {monthLabel(m.month)}
@@ -292,7 +301,7 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
                   label: c.category_name,
                   total_cents: c.total_cents,
                 }))}
-                emptyMessage="No spending this month."
+                emptyMessage="No spending in this period."
                 selectedKey={selectedCategory ? categoryKey(selectedCategory) : null}
                 onRowClick={handleCategoryClick}
               />
@@ -302,7 +311,7 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
               <h2 className="font-semibold text-ink mb-3">Top merchants</h2>
               <RankedBarList
                 rows={merchants.map((m) => ({ key: m.merchant, label: m.merchant, total_cents: m.total_cents }))}
-                emptyMessage="No spending this month."
+                emptyMessage="No spending in this period."
               />
             </Card>
           </div>
@@ -310,7 +319,8 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
           {selectedCategory && (
             <Card>
               <h2 className="font-semibold text-ink mb-3">
-                {selectedCategory.category_name} transactions &mdash; {monthLabel(selectedMonth!)}
+                {selectedCategory.category_name} transactions &mdash;{" "}
+                {selectedMonth ? monthLabel(selectedMonth) : "All time"}
               </h2>
               {categoryTransactionsLoading ? (
                 <p className="text-ink-muted text-sm">Loading...</p>

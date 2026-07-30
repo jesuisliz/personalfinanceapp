@@ -195,11 +195,11 @@ export async function fetchMonthlySummary(months: number, accountId: number | nu
 }
 
 export async function fetchCategoryBreakdown(
-  month: string,
+  month: string | null,
   accountId: number | null
 ): Promise<CategoryBreakdown[]> {
   const url = new URL(`${API_BASE}/dashboard/categories`);
-  url.searchParams.set("month", month);
+  if (month !== null) url.searchParams.set("month", month);
   if (accountId !== null) url.searchParams.set("account_id", String(accountId));
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to load category breakdown");
@@ -207,12 +207,12 @@ export async function fetchCategoryBreakdown(
 }
 
 export async function fetchTopMerchants(
-  month: string,
+  month: string | null,
   accountId: number | null,
   limit = 10
 ): Promise<MerchantBreakdown[]> {
   const url = new URL(`${API_BASE}/dashboard/merchants`);
-  url.searchParams.set("month", month);
+  if (month !== null) url.searchParams.set("month", month);
   url.searchParams.set("limit", String(limit));
   if (accountId !== null) url.searchParams.set("account_id", String(accountId));
   const res = await fetch(url);
@@ -221,12 +221,12 @@ export async function fetchTopMerchants(
 }
 
 export async function fetchCategoryTransactions(
-  month: string,
+  month: string | null,
   accountId: number | null,
   categoryId: number | null
 ): Promise<Transaction[]> {
   const url = new URL(`${API_BASE}/dashboard/categories/transactions`);
-  url.searchParams.set("month", month);
+  if (month !== null) url.searchParams.set("month", month);
   if (accountId !== null) url.searchParams.set("account_id", String(accountId));
   if (categoryId === null) {
     url.searchParams.set("uncategorized", "true");

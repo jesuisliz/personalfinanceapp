@@ -18,13 +18,13 @@ def get_monthly_summary(
 
 
 @router.get("/categories", response_model=list[CategoryBreakdownOut])
-def get_category_breakdown(month: str, account_id: int | None = None, db: Session = Depends(get_db)):
+def get_category_breakdown(month: str | None = None, account_id: int | None = None, db: Session = Depends(get_db)):
     return category_breakdown(db, month, account_id)
 
 
 @router.get("/merchants", response_model=list[MerchantBreakdownOut])
 def get_top_merchants(
-    month: str,
+    month: str | None = None,
     account_id: int | None = None,
     limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -34,7 +34,7 @@ def get_top_merchants(
 
 @router.get("/categories/transactions", response_model=list[TransactionOut])
 def get_category_transactions(
-    month: str,
+    month: str | None = None,
     account_id: int | None = None,
     category_id: int | None = None,
     uncategorized: bool = False,
