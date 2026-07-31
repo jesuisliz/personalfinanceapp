@@ -14,7 +14,10 @@ export function CategoryDropdown({
   onChange: (categoryId: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const PANEL_HEIGHT = 260; // max-h-64 (256px) + a hair of margin
 
   useEffect(() => {
     if (!open) return;
@@ -40,12 +43,22 @@ export function CategoryDropdown({
     setOpen(false);
   }
 
+  function toggleOpen() {
+    if (!open && rootRef.current) {
+      const rect = rootRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setOpenUpward(spaceBelow < PANEL_HEIGHT && spaceAbove > spaceBelow);
+    }
+    setOpen((o) => !o);
+  }
+
   return (
     <div className="relative" ref={rootRef}>
       <button
         type="button"
         className={`${inputClass} bg-canvas flex items-center gap-2 min-w-[9rem]`}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
       >
         {selected && (
           <span
@@ -58,7 +71,11 @@ export function CategoryDropdown({
       </button>
 
       {open && (
-        <div className="absolute z-10 mt-1 w-full min-w-[9rem] max-h-64 overflow-y-auto bg-surface border border-hairline-strong rounded-lg shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] py-1">
+        <div
+          className={`absolute z-10 w-full min-w-[9rem] max-h-64 overflow-y-auto bg-surface border border-hairline-strong rounded-lg shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] py-1 ${
+            openUpward ? "bottom-full mb-1" : "mt-1"
+          }`}
+        >
           <button
             type="button"
             className={`w-full text-left px-2 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
