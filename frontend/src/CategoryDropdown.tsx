@@ -17,7 +17,7 @@ export function CategoryDropdown({
   const [openUpward, setOpenUpward] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const PANEL_HEIGHT = 260; // max-h-64 (256px) + a hair of margin
+  const PANEL_HEIGHT = 390; // max-h-96 (384px) + a hair of margin
 
   useEffect(() => {
     if (!open) return;
@@ -72,7 +72,7 @@ export function CategoryDropdown({
 
       {open && (
         <div
-          className={`absolute z-10 w-full min-w-[9rem] max-h-64 overflow-y-auto bg-surface border border-hairline-strong rounded-lg shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] py-1 ${
+          className={`absolute z-10 w-72 max-h-96 overflow-y-auto bg-surface border border-hairline-strong rounded-lg shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] py-1 ${
             openUpward ? "bottom-full mb-1" : "mt-1"
           }`}
         >
@@ -85,19 +85,21 @@ export function CategoryDropdown({
           >
             Uncategorized
           </button>
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className={`w-full flex items-center gap-2 text-left px-2 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
-                value === c.id ? "text-ink" : "text-ink-secondary"
-              }`}
-              onClick={() => selectOption(c.id)}
-            >
-              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: categoryDotColor(c.id) }} />
-              {c.name}
-            </button>
-          ))}
+          <div className="grid grid-cols-2">
+            {categories.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`min-w-0 flex items-center gap-2 text-left px-2 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
+                  value === c.id ? "text-ink" : "text-ink-secondary"
+                }`}
+                onClick={() => selectOption(c.id)}
+              >
+                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: categoryDotColor(c.id) }} />
+                <span className="truncate">{c.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
