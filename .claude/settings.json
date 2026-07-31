@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run dev)",
+      "Bash(npm run lint)",
+      "Bash(./venv/Scripts/python.exe -m pytest *)",
+      "Bash(\"./venv/Scripts/python.exe\" -m pytest *)",
+      "Bash(./venv/Scripts/python.exe -m uvicorn *)",
+      "Bash(\"./venv/Scripts/python.exe\" -m uvicorn *)",
+      "Bash(tasklist *)",
+      "Bash(source venv/Scripts/activate)"
+    ]
+  }
+}
