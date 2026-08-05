@@ -159,7 +159,12 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [monthly, setMonthly] = useState<MonthlySummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const monthInitialized = useRef(false);
+  // Set only by the month <select>'s onChange - tracks "the user explicitly picked All
+  // months" so an account switch doesn't override it. Deliberately not inferred from
+  // effect/ref timing: the fetch effect below can fire more than once per mount (React
+  // dev-mode double-invoke), and a second invocation can observe pre-commit state that
+  // looks identical to "already initialized with All months selected" even on first load.
+  const userPickedAllMonths = useRef(false);
   const [categories, setCategories] = useState<CategoryBreakdown[]>([]);
   const [income, setIncome] = useState<CategoryBreakdown[]>([]);
   const [merchants, setMerchants] = useState<MerchantBreakdown[]>([]);
@@ -179,13 +184,10 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
       .then((result) => {
         setMonthly(result);
         setSelectedMonth((prev) => {
-          // "All months" (null) is an explicit user choice once initialized, not a
-          // sentinel for "not yet loaded" - don't override it on account switch.
-          if (monthInitialized.current && prev === null) return null;
+          if (userPickedAllMonths.current) return null;
           if (prev && result.some((r) => r.month === prev)) return prev;
           return result.length > 0 ? result[result.length - 1].month : null;
         });
-        monthInitialized.current = true;
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
@@ -357,7 +359,11 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
             <select
               className={inputClass}
               value={selectedMonth ?? ALL_MONTHS_VALUE}
-              onChange={(e) => setSelectedMonth(e.target.value === ALL_MONTHS_VALUE ? null : e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value === ALL_MONTHS_VALUE ? null : e.target.value;
+                userPickedAllMonths.current = value === null;
+                setSelectedMonth(value);
+              }}
             >
               <option value={ALL_MONTHS_VALUE}>All months</option>
               {monthly.map((m) => (
