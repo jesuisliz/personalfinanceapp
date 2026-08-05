@@ -1,7 +1,14 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.dashboard.aggregates import category_breakdown, category_transactions, monthly_summary, top_merchants
+from app.dashboard.aggregates import (
+    category_breakdown,
+    category_transactions,
+    income_breakdown,
+    income_transactions,
+    monthly_summary,
+    top_merchants,
+)
 from app.db import get_db
 from app.schemas import CategoryBreakdownOut, MerchantBreakdownOut, MonthlySummaryOut, TransactionOut
 
@@ -41,3 +48,19 @@ def get_category_transactions(
     db: Session = Depends(get_db),
 ):
     return category_transactions(db, month, account_id, category_id, uncategorized)
+
+
+@router.get("/income-categories", response_model=list[CategoryBreakdownOut])
+def get_income_breakdown(month: str | None = None, account_id: int | None = None, db: Session = Depends(get_db)):
+    return income_breakdown(db, month, account_id)
+
+
+@router.get("/income-categories/transactions", response_model=list[TransactionOut])
+def get_income_transactions(
+    month: str | None = None,
+    account_id: int | None = None,
+    category_id: int | None = None,
+    uncategorized: bool = False,
+    db: Session = Depends(get_db),
+):
+    return income_transactions(db, month, account_id, category_id, uncategorized)

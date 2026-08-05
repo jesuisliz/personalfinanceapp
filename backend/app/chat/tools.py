@@ -7,6 +7,8 @@ from app.dashboard.aggregates import (
     category_transactions,
     category_trends,
     estimate_category_reduction_savings,
+    income_breakdown,
+    income_transactions,
     merchant_transactions,
     monthly_summary,
     non_spending_category_transactions,
@@ -89,12 +91,59 @@ def build_tool_schemas(session: Session) -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "get_income_breakdown",
+                "description": (
+                    "Income broken down by category for a single calendar month (paychecks, "
+                    "interest, dividends, RSU/stock sales, and any refund landing back in a "
+                    "spending category). Use this instead of get_category_breakdown when the "
+                    "question is about money coming in, not going out."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "month": {"type": "string", "description": "Calendar month as YYYY-MM"},
+                        "account_id": {"type": ["integer", "null"]},
+                    },
+                    "required": ["month"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "get_category_transactions",
                 "description": (
                     "The individual transactions in one category. Pass `month` for a single "
                     "calendar month, or omit it entirely to get every transaction in that "
                     "category across all time in one call - do this whenever the question spans "
                     "multiple months or 'all months', rather than calling this once per month."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "month": {
+                            "type": ["string", "null"],
+                            "description": "Calendar month as YYYY-MM, or omit/null for all-time",
+                        },
+                        "category_name": {"type": "string", "enum": category_names},
+                        "account_id": {"type": ["integer", "null"]},
+                    },
+                    "required": ["category_name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_income_transactions",
+                "description": (
+                    "The individual income transactions in one category (e.g. paychecks, "
+                    "interest, or a refund that landed back in a spending category). Use this "
+                    "instead of get_category_transactions when the question is about money "
+                    "coming in, not going out - get_category_transactions only returns "
+                    "outgoing (negative-amount) transactions, so an income-only category like "
+                    "'Interest & Investments' would come back empty through it. Pass `month` "
+                    "for a single calendar month, or omit it entirely for all-time."
                 ),
                 "parameters": {
                     "type": "object",
@@ -247,6 +296,23 @@ def dispatch_tool_call(session: Session, name: str, arguments: dict) -> dict | l
     if name == "get_top_merchants":
         limit = arguments.get("limit", 10)
         return [r.model_dump() for r in top_merchants(session, arguments["month"], account_id, limit)]
+
+    if name == "get_income_breakdown":
+        return [r.model_dump() for r in income_breakdown(session, arguments["month"], account_id)]
+
+    if name == "get_income_transactions":
+        category_name = arguments["category_name"]
+        uncategorized = category_name == UNCATEGORIZED_NAME
+        category_id = resolve_category_id(session, category_name)
+        rows = income_transactions(session, arguments.get("month"), account_id, category_id, uncategorized)
+        return [
+            {
+                "date": t.date.isoformat(),
+                "description": t.clean_description or t.description,
+                "amount_cents": t.amount_cents,
+            }
+            for t in rows
+        ]
 
     if name == "get_category_transactions":
         category_name = arguments["category_name"]

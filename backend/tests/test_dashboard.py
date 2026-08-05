@@ -8,6 +8,8 @@ from app.dashboard.aggregates import (
     category_transactions,
     category_trends,
     estimate_category_reduction_savings,
+    income_breakdown,
+    income_transactions,
     merchant_transactions,
     monthly_summary,
     non_spending_category_transactions,
@@ -283,6 +285,139 @@ def test_category_transactions_excludes_transfers():
     make_txn(session, account.id, -1000, date(2026, 7, 1), category_id=dining.id, is_transfer=True)
 
     result = category_transactions(session, "2026-07", account_id=None, category_id=dining.id, uncategorized=False)
+
+    assert result == []
+
+
+def test_income_breakdown_groups_by_category_and_income_only():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    make_txn(session, account.id, 500000, date(2026, 7, 1), category_id=income_cat.id)
+    make_txn(session, account.id, 100000, date(2026, 7, 2), category_id=None)
+    make_txn(session, account.id, -3000, date(2026, 7, 3), category_id=income_cat.id)  # expense, excluded
+
+    result = income_breakdown(session, "2026-07", account_id=None)
+
+    by_name = {r.category_name: r.total_cents for r in result}
+    assert by_name == {"Income": 500000, "Uncategorized": 100000}
+
+
+def test_income_breakdown_includes_refund_in_spending_category():
+    """A refund landing back in an ordinary spending category (e.g. "Shopping") must
+    show up under its real category in the income breakdown, not be hidden or
+    reclassified - per the user's explicit scope decision to mirror category_breakdown
+    exactly rather than restrict to a hardcoded "true income" category allowlist."""
+    session = make_session()
+    account = make_account(session)
+    shopping = make_category(session, "Shopping")
+    make_txn(session, account.id, 4000, date(2026, 7, 1), category_id=shopping.id, description="Refund")
+
+    result = income_breakdown(session, "2026-07", account_id=None)
+
+    assert len(result) == 1
+    assert result[0].category_id == shopping.id
+    assert result[0].category_name == "Shopping"
+    assert result[0].total_cents == 4000
+
+
+def test_income_breakdown_excludes_transfers():
+    session = make_session()
+    account = make_account(session)
+    transfers = make_category(session, "Transfers")
+    make_txn(session, account.id, 50000, date(2026, 7, 1), category_id=transfers.id)
+    make_txn(session, account.id, 1000, date(2026, 7, 1), is_transfer=True)
+
+    result = income_breakdown(session, "2026-07", account_id=None)
+
+    assert result == []
+
+
+def test_income_breakdown_excludes_credit_card_payment():
+    session = make_session()
+    account = make_account(session)
+    payments = make_category(session, "Credit Card Payment")
+    make_txn(session, account.id, 50000, date(2026, 7, 1), category_id=payments.id)
+
+    result = income_breakdown(session, "2026-07", account_id=None)
+
+    assert result == []
+
+
+def test_income_breakdown_sorted_descending_and_scoped_to_month():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    interest = make_category(session, "Interest & Investments")
+    make_txn(session, account.id, 1000, date(2026, 7, 1), category_id=interest.id)
+    make_txn(session, account.id, 500000, date(2026, 7, 1), category_id=income_cat.id)
+    make_txn(session, account.id, 999999, date(2026, 6, 1), category_id=interest.id)  # different month
+
+    result = income_breakdown(session, "2026-07", account_id=None)
+
+    assert [r.category_name for r in result] == ["Income", "Interest & Investments"]
+
+
+def test_income_transactions_returns_only_matching_category_and_month():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    interest = make_category(session, "Interest & Investments")
+    a = make_txn(session, account.id, 500000, date(2026, 7, 1), description="Paycheck", category_id=income_cat.id)
+    make_txn(session, account.id, 1000, date(2026, 7, 2), description="Interest", category_id=interest.id)
+    make_txn(session, account.id, 500000, date(2026, 6, 1), description="Old paycheck", category_id=income_cat.id)
+
+    result = income_transactions(session, "2026-07", account_id=None, category_id=income_cat.id, uncategorized=False)
+
+    assert [t.id for t in result] == [a.id]
+
+
+def test_income_transactions_all_time_when_month_omitted():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    a = make_txn(session, account.id, 500000, date(2026, 1, 1), category_id=income_cat.id)
+    b = make_txn(session, account.id, 500000, date(2026, 7, 1), category_id=income_cat.id)
+
+    result = income_transactions(session, None, account_id=None, category_id=income_cat.id, uncategorized=False)
+
+    assert {t.id for t in result} == {a.id, b.id}
+
+
+def test_income_transactions_uncategorized_flag():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    a = make_txn(session, account.id, 100000, date(2026, 7, 1), category_id=None)
+    make_txn(session, account.id, 500000, date(2026, 7, 2), category_id=income_cat.id)
+
+    result = income_transactions(session, "2026-07", account_id=None, category_id=None, uncategorized=True)
+
+    assert [t.id for t in result] == [a.id]
+
+
+def test_income_transactions_sums_to_income_breakdown_total():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    make_txn(session, account.id, 300000, date(2026, 7, 1), category_id=income_cat.id)
+    make_txn(session, account.id, 200000, date(2026, 7, 15), category_id=income_cat.id)
+    make_txn(session, account.id, -1000, date(2026, 7, 20), category_id=income_cat.id)  # expense, excluded
+
+    breakdown = income_breakdown(session, "2026-07", account_id=None)
+    transactions = income_transactions(session, "2026-07", account_id=None, category_id=income_cat.id, uncategorized=False)
+
+    income_row = next(r for r in breakdown if r.category_id == income_cat.id)
+    assert sum(t.amount_cents for t in transactions) == income_row.total_cents
+
+
+def test_income_transactions_excludes_transfers():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    make_txn(session, account.id, 1000, date(2026, 7, 1), category_id=income_cat.id, is_transfer=True)
+
+    result = income_transactions(session, "2026-07", account_id=None, category_id=income_cat.id, uncategorized=False)
 
     assert result == []
 

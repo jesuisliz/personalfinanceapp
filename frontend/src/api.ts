@@ -251,6 +251,36 @@ export async function fetchCategoryTransactions(
   return res.json();
 }
 
+export async function fetchIncomeBreakdown(
+  month: string | null,
+  accountId: number | null
+): Promise<CategoryBreakdown[]> {
+  const url = new URL(`${API_BASE}/dashboard/income-categories`);
+  if (month !== null) url.searchParams.set("month", month);
+  if (accountId !== null) url.searchParams.set("account_id", String(accountId));
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to load income breakdown");
+  return res.json();
+}
+
+export async function fetchIncomeTransactions(
+  month: string | null,
+  accountId: number | null,
+  categoryId: number | null
+): Promise<Transaction[]> {
+  const url = new URL(`${API_BASE}/dashboard/income-categories/transactions`);
+  if (month !== null) url.searchParams.set("month", month);
+  if (accountId !== null) url.searchParams.set("account_id", String(accountId));
+  if (categoryId === null) {
+    url.searchParams.set("uncategorized", "true");
+  } else {
+    url.searchParams.set("category_id", String(categoryId));
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to load income transactions");
+  return res.json();
+}
+
 export async function sendChatMessage(
   message: string,
   history: ChatMessage[],

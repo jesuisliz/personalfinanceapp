@@ -165,6 +165,42 @@ def test_dispatch_get_top_merchants():
     assert result == [{"merchant": "Cafe", "total_cents": 1000, "transaction_count": 1}]
 
 
+def test_dispatch_get_income_breakdown():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    make_txn(session, account.id, 500000, date(2026, 7, 1), category_id=income_cat.id)
+
+    result = dispatch_tool_call(session, "get_income_breakdown", {"month": "2026-07"})
+
+    assert result == [{"category_id": income_cat.id, "category_name": "Income", "total_cents": 500000}]
+
+
+def test_dispatch_get_income_transactions():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    make_txn(session, account.id, 500000, date(2026, 7, 1), description="Paycheck", category_id=income_cat.id)
+
+    result = dispatch_tool_call(
+        session, "get_income_transactions", {"month": "2026-07", "category_name": "Income"}
+    )
+
+    assert result == [{"date": "2026-07-01", "description": "Paycheck", "amount_cents": 500000}]
+
+
+def test_dispatch_get_income_transactions_all_time_when_month_omitted():
+    session = make_session()
+    account = make_account(session)
+    income_cat = make_category(session, "Income")
+    make_txn(session, account.id, 500000, date(2026, 1, 1), description="Jan", category_id=income_cat.id)
+    make_txn(session, account.id, 500000, date(2026, 7, 1), description="Jul", category_id=income_cat.id)
+
+    result = dispatch_tool_call(session, "get_income_transactions", {"category_name": "Income"})
+
+    assert {r["description"] for r in result} == {"Jan", "Jul"}
+
+
 def test_dispatch_get_category_transactions():
     session = make_session()
     account = make_account(session)

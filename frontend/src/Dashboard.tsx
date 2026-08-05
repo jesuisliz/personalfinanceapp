@@ -14,6 +14,8 @@ import {
 import {
   fetchCategoryBreakdown,
   fetchCategoryTransactions,
+  fetchIncomeBreakdown,
+  fetchIncomeTransactions,
   fetchMonthlySummary,
   fetchTopMerchants,
   type Account,
@@ -103,16 +105,70 @@ function RankedBarList({
   );
 }
 
+function CategoryTransactionsTable({
+  title,
+  transactions,
+  loading,
+  accountById,
+  amountColor = "text-critical",
+}: {
+  title: string;
+  transactions: Transaction[];
+  loading: boolean;
+  accountById: Map<number, Account>;
+  amountColor?: string;
+}) {
+  return (
+    <Card>
+      <h2 className="font-semibold text-ink mb-3">{title}</h2>
+      {loading ? (
+        <p className="text-ink-muted text-sm">Loading...</p>
+      ) : transactions.length === 0 ? (
+        <p className="text-ink-muted text-sm">No transactions found.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b border-hairline text-ink-secondary">
+                <th className="p-2 font-medium">Date</th>
+                <th className="p-2 font-medium">Account</th>
+                <th className="p-2 font-medium">Description</th>
+                <th className="p-2 font-medium text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((t) => (
+                <tr key={t.id} className="border-b border-hairline last:border-0">
+                  <td className="p-2 whitespace-nowrap text-ink-secondary">{t.date}</td>
+                  <td className="p-2 whitespace-nowrap text-ink-secondary">
+                    {accountById.get(t.account_id)?.name ?? t.account_id}
+                  </td>
+                  <td className="p-2 text-ink">{t.clean_description ?? t.description}</td>
+                  <td className={`p-2 text-right whitespace-nowrap ${amountColor}`}>{formatAmount(t.amount_cents)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function Dashboard({ accounts }: { accounts: Account[] }) {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [monthly, setMonthly] = useState<MonthlySummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const monthInitialized = useRef(false);
   const [categories, setCategories] = useState<CategoryBreakdown[]>([]);
+  const [income, setIncome] = useState<CategoryBreakdown[]>([]);
   const [merchants, setMerchants] = useState<MerchantBreakdown[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<CategoryBreakdown | null>(null);
+  const [selectedIncomeCategory, setSelectedIncomeCategory] = useState<CategoryBreakdown | null>(null);
   const [categoryTransactions, setCategoryTransactions] = useState<Transaction[]>([]);
   const [categoryTransactionsLoading, setCategoryTransactionsLoading] = useState(false);
+  const [incomeTransactions, setIncomeTransactions] = useState<Transaction[]>([]);
+  const [incomeTransactionsLoading, setIncomeTransactionsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,15 +196,18 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
     // only skip fetching before the monthly summary has loaded at all.
     if (monthly.length === 0) {
       setCategories([]);
+      setIncome([]);
       setMerchants([]);
       return;
     }
     Promise.all([
       fetchCategoryBreakdown(selectedMonth, selectedAccountId),
+      fetchIncomeBreakdown(selectedMonth, selectedAccountId),
       fetchTopMerchants(selectedMonth, selectedAccountId, TOP_MERCHANTS_LIMIT),
     ])
-      .then(([categoryResult, merchantResult]) => {
+      .then(([categoryResult, incomeResult, merchantResult]) => {
         setCategories(categoryResult);
+        setIncome(incomeResult);
         setMerchants(merchantResult);
       })
       .catch((e) => setError(String(e)));
@@ -166,9 +225,26 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
       .finally(() => setCategoryTransactionsLoading(false));
   }, [selectedCategory, selectedMonth, selectedAccountId, monthly.length]);
 
+  useEffect(() => {
+    if (selectedIncomeCategory === null || monthly.length === 0) {
+      setIncomeTransactions([]);
+      return;
+    }
+    setIncomeTransactionsLoading(true);
+    fetchIncomeTransactions(selectedMonth, selectedAccountId, selectedIncomeCategory.category_id)
+      .then(setIncomeTransactions)
+      .catch((e) => setError(String(e)))
+      .finally(() => setIncomeTransactionsLoading(false));
+  }, [selectedIncomeCategory, selectedMonth, selectedAccountId, monthly.length]);
+
   function handleCategoryClick(key: string) {
     const clicked = categories.find((c) => categoryKey(c) === key) ?? null;
     setSelectedCategory((prev) => (prev && clicked && categoryKey(prev) === key ? null : clicked));
+  }
+
+  function handleIncomeCategoryClick(key: string) {
+    const clicked = income.find((c) => categoryKey(c) === key) ?? null;
+    setSelectedIncomeCategory((prev) => (prev && clicked && categoryKey(prev) === key ? null : clicked));
   }
 
   const accountById = new Map(accounts.map((a) => [a.id, a]));
@@ -292,7 +368,22 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
             </select>
           </label>
 
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card>
+              <h2 className="font-semibold text-ink mb-1">Income by category</h2>
+              <p className="text-xs text-ink-muted mb-3">Click a category to see its transactions.</p>
+              <RankedBarList
+                rows={income.map((c) => ({
+                  key: categoryKey(c),
+                  label: c.category_name,
+                  total_cents: c.total_cents,
+                }))}
+                emptyMessage="No income in this period."
+                selectedKey={selectedIncomeCategory ? categoryKey(selectedIncomeCategory) : null}
+                onRowClick={handleIncomeCategoryClick}
+              />
+            </Card>
+
             <Card>
               <h2 className="font-semibold text-ink mb-1">Spending by category</h2>
               <p className="text-xs text-ink-muted mb-3">Click a category to see its transactions.</p>
@@ -317,45 +408,27 @@ export default function Dashboard({ accounts }: { accounts: Account[] }) {
             </Card>
           </div>
 
+          {selectedIncomeCategory && (
+            <CategoryTransactionsTable
+              title={`${selectedIncomeCategory.category_name} transactions — ${
+                selectedMonth ? monthLabel(selectedMonth) : "All time"
+              }`}
+              transactions={incomeTransactions}
+              loading={incomeTransactionsLoading}
+              accountById={accountById}
+              amountColor="text-good"
+            />
+          )}
+
           {selectedCategory && (
-            <Card>
-              <h2 className="font-semibold text-ink mb-3">
-                {selectedCategory.category_name} transactions &mdash;{" "}
-                {selectedMonth ? monthLabel(selectedMonth) : "All time"}
-              </h2>
-              {categoryTransactionsLoading ? (
-                <p className="text-ink-muted text-sm">Loading...</p>
-              ) : categoryTransactions.length === 0 ? (
-                <p className="text-ink-muted text-sm">No transactions found.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left border-b border-hairline text-ink-secondary">
-                        <th className="p-2 font-medium">Date</th>
-                        <th className="p-2 font-medium">Account</th>
-                        <th className="p-2 font-medium">Description</th>
-                        <th className="p-2 font-medium text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {categoryTransactions.map((t) => (
-                        <tr key={t.id} className="border-b border-hairline last:border-0">
-                          <td className="p-2 whitespace-nowrap text-ink-secondary">{t.date}</td>
-                          <td className="p-2 whitespace-nowrap text-ink-secondary">
-                            {accountById.get(t.account_id)?.name ?? t.account_id}
-                          </td>
-                          <td className="p-2 text-ink">{t.clean_description ?? t.description}</td>
-                          <td className="p-2 text-right whitespace-nowrap text-critical">
-                            {formatAmount(t.amount_cents)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
+            <CategoryTransactionsTable
+              title={`${selectedCategory.category_name} transactions — ${
+                selectedMonth ? monthLabel(selectedMonth) : "All time"
+              }`}
+              transactions={categoryTransactions}
+              loading={categoryTransactionsLoading}
+              accountById={accountById}
+            />
           )}
         </div>
       )}

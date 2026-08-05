@@ -114,6 +114,55 @@ def category_breakdown(session: Session, month: str | None, account_id: int | No
     return rows
 
 
+def income_breakdown(session: Session, month: str | None, account_id: int | None) -> list[CategoryBreakdownOut]:
+    """`month=None` returns an all-time breakdown across every transaction, not just
+    one month - used by the Dashboard's "All months" option. Mirrors category_breakdown
+    but for the income side: every positive-amount transaction, grouped by whatever
+    category it's actually in. This deliberately includes refunds that land back in an
+    ordinary spending category (e.g. a "Shopping" refund) rather than hiding or
+    reclassifying them - it shows what's really there instead of guessing at intent."""
+    category_names = {c.id: c.name for c in session.execute(select(Category)).scalars().all()}
+    totals: dict[int | None, int] = defaultdict(int)
+
+    for t in _load_real_transactions(session, account_id):
+        if t.amount_cents <= 0 or (month is not None and _month_key(t.date) != month):
+            continue
+        totals[t.category_id] += t.amount_cents
+
+    rows = [
+        CategoryBreakdownOut(
+            category_id=category_id,
+            category_name=category_names.get(category_id, UNCATEGORIZED_LABEL),
+            total_cents=total,
+        )
+        for category_id, total in totals.items()
+    ]
+    rows.sort(key=lambda r: r.total_cents, reverse=True)
+    return rows
+
+
+def income_transactions(
+    session: Session, month: str | None, account_id: int | None, category_id: int | None, uncategorized: bool
+) -> list[Transaction]:
+    """The exact set of income transactions that fed one category's total in
+    income_breakdown, for drill-down display. Mirrors category_transactions but for the
+    income side. `month=None` returns every matching transaction across all time in a
+    single call, rather than requiring one call per month."""
+    matches = []
+    for t in _load_real_transactions(session, account_id):
+        if t.amount_cents <= 0 or (month is not None and _month_key(t.date) != month):
+            continue
+        if uncategorized:
+            if t.category_id is not None:
+                continue
+        elif t.category_id != category_id:
+            continue
+        matches.append(t)
+
+    matches.sort(key=lambda t: t.date, reverse=True)
+    return matches
+
+
 def non_spending_category_transactions(
     session: Session, month: str | None, account_id: int | None, category_id: int
 ) -> list[Transaction]:
