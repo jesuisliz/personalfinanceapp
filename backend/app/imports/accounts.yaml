@@ -41,6 +41,14 @@
       institution: "Bank of America"
       account_type: "credit_card"
 
+# native card export, e.g. "ExportData_BOA_July2026_4947.csv"
+- match: "4947"
+  parser: boa_native_card
+  accounts:
+    - name: "BOA Travel Rewards Visa Signature"
+      institution: "Bank of America"
+      account_type: "credit_card"
+
 - match: "ExportData_BOA"
   parser: boa
   accounts:

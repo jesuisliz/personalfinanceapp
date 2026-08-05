@@ -125,6 +125,13 @@ Maps a filename pattern to one or more account definitions. Matching is "pattern
       institution: "Bank of America"
       account_type: "credit_card"
 
+- match: "4947"
+  parser: boa_native_card
+  accounts:
+    - name: "BOA Travel Rewards Visa Signature"
+      institution: "Bank of America"
+      account_type: "credit_card"
+
 - match: "ExportData_BOA"
   parser: boa
   accounts:
@@ -163,6 +170,8 @@ Maps a filename pattern to one or more account definitions. Matching is "pattern
 **Why BOA is a list of accounts, not one:** the BOA aggregator export's `Account Name` column mixes rows from multiple real accounts in a single CSV. Chase and US Bank files are one-account-per-file, so their `accounts` list has exactly one entry with no `row_filter`. The BOA parser uses `row_filter.account_name_contains` to split incoming rows to the correct `Account` record.
 
 **Native per-account BOA exports (2026-07-28):** downloading history directly from BofA per account (`ExportData_BOA_1962_6mos.csv`, `_1640_6mos.csv`, `_3938_6mos.csv`, `ExportData_BOA_<Month>2026_9837.csv`) produces a different file per real account, not one combined file — so these entries are single-account, no `row_filter`, same as Chase/US Bank. They match on the account number embedded in the filename (`1962`, `1640`, `3938`, `9837`) rather than the generic `ExportData_BOA` prefix, and are listed **before** the generic `ExportData_BOA` entry since `match()` is first-match-wins on substring and every one of these filenames also contains `"ExportData_BOA"`. `1962` → BOA Interest Checking, `3938` → BOA Savings, `9837` → BOA Customized Cash Rewards (all three confirmed by cross-referencing transfer/payment amounts against the original aggregator file); `1640` is a second checking account the aggregator export never surfaced on its own.
+
+**Second native card account, `4947` (2026-08-05):** the user started pulling monthly native per-account exports (`ExportData_BOA_<Month>2026_4947.csv`) for the Travel Rewards card too — same `boa_native_card` format/parser as `9837`, just a different account. No new parser needed, only this config entry (also listed before the generic `ExportData_BOA` entry, same reason as `9837`). This was the first switch from the 6-month aggregator export to monthly native exports for this account, and its date range overlapped ~43 already-imported aggregator-sourced transactions (through 2026-07-11) with different description text — the overlap was hand-trimmed out before import rather than trusted to dedupe (see the "re-download overlap defeats dedupe hash" note in `.claude/skills/add-bank-source/SKILL.md`).
 
 **This was confirmed the hard way, not assumed:** the design was originally written expecting two BOA accounts (one credit card, one checking) based on a partial preview of the file. Running the pipeline against the *complete* real file surfaced two more real accounts the preview never showed — a second credit card (`Travel Rewards Visa Signature`) and a savings account whose export literally labels it `Bank of America - Bank - Credit` (confirmed with the user to be a savings account despite the odd name, paired with the checking account via transfers and interest income). Because `resolve_account_definition` raises on an unrecognized `Account Name` instead of silently defaulting to some account, this showed up as a hard error during verification rather than misattributed transactions — exactly the failure mode Section 8's error handling is meant to produce. The lesson generalized into `.claude/skills/add-bank-source/SKILL.md`: always inspect the *complete* file, not a sample of it, especially for any format where one file can contain multiple accounts.
 
@@ -366,6 +375,7 @@ Concrete, checkable against the five real files in `data/` — this is what "Pha
 - Malformed input (e.g. a filename matching no `accounts.yaml` entry, or a BOA row whose `Account Name` matches no configured `row_filter`) fails the import with a clear error — it never creates a guessed account or drops the file silently.
 - Automated tests in `tests/` (parsers + pipeline, per Section 10) pass using only synthetic fixtures — no real statement from `data/` is ever read by a test or committed to version control.
 - (2026-07-28 follow-up) Native per-account BOA re-downloads for `1962` (checking) and `3938` (savings) cover a date range that overlaps already-imported aggregator data (Apr27–Jul25 for `1962`, May7–Jul25 for `3938`), with different description text than the aggregator export — so the hash-based dedupe in Section 5.2 would not catch the overlap. Handled by trimming those two files to their non-overlapping date range (Jan1 up to, not including, the aggregator's earliest date for that account) before import, rather than importing the full 6-month file and relying on dedupe. `1640` (new account) and the `9837` monthly card files have no overlap and were imported in full.
+- (2026-08-05 follow-up) Same overlap risk recurred for the `9837` monthly card file itself — assumed safe because the account/parser combo was already established, but its date range still overlapped ~2 weeks of aggregator-sourced data and produced 15 duplicate transactions before being caught and deleted after the fact. The account count is still 9 (5 BOA) as of this date — the same-day `4947` config addition (Travel Rewards) gave an existing account a new import route, not a new account. See `.claude/skills/add-bank-source/SKILL.md` step 1/3 for the corrected process.
 
 ## 12. Deferred / Known Limitations (carried forward, not solved here)
 
@@ -404,7 +414,7 @@ The backend is local-only and has exactly one real caller (the Vite dev server o
 - Account filter: a native `<select>` populated from `GET /accounts`, defaulting to "All accounts". Selecting one re-fetches `GET /transactions?account_id=<id>`.
 - Transaction table: date, account name (resolved client-side from the accounts list, not repeated per-row from the API), description, category, and amount — amount in red when negative (expense), green when positive (income), formatted via `toLocaleString(..., {style: "currency"})`.
 - CSV upload: a styled `<label>` wrapping a hidden `<input type="file">`; on change, `POST /imports` as multipart form data, show the returned `ImportSummary` inline (`"<filename>: N new, M already imported"`), then re-fetch the transaction list. Import errors (e.g. unmatched filename) surface the backend's error `detail` text directly rather than a generic failure message, consistent with Section 8's "no silent failure" principle.
-- Transaction list is capped at `limit=1000` (the API's max per Section 7) with no pagination UI yet — acceptable for the current real data volume (654 transactions across 8 accounts); revisit if that grows past 1000.
+- Transaction list is capped at `limit=1000` (the API's max per Section 7) with no pagination UI yet — real data volume as of 2026-08-05 is 934 transactions across 9 accounts, getting close to the cap; revisit pagination sooner rather than later, not just "if that grows past 1000."
 
 ### 13.5 Verification performed
 

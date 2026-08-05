@@ -79,6 +79,16 @@ def test_us_bank_single_account_both_credit_and_debit(session):
     assert accounts[0].name == "US Bank (...8606)"
 
 
+def test_boa_native_card_4947_routes_to_travel_rewards(session):
+    summary = import_file(
+        session, "ExportData_BOA_July2026_4947.csv", read_fixture("boa_native_card_sample.csv")
+    )
+    accounts = session.query(Account).all()
+    assert len(accounts) == 1
+    assert accounts[0].name == "BOA Travel Rewards Visa Signature"
+    assert summary.rows_inserted == summary.rows_seen
+
+
 def test_unmatched_filename_raises_instead_of_guessing(session):
     with pytest.raises(ValueError):
         import_file(session, "SomeRandomBank_export.csv", b"a,b\n1,2\n")
