@@ -10,8 +10,11 @@ Personal finance app dev servers (`uvicorn --reload` on :8000, Vite on :5173) ge
 ## 1. Check this project's dev server ports
 
 ```
-netstat -ano | findstr LISTENING | findstr -E ":5173|:8000"
+netstat -ano | findstr LISTENING | findstr ":5173"
+netstat -ano | findstr LISTENING | findstr ":8000"
 ```
+
+Run these as two separate calls, not combined with `findstr -E ":5173|:8000"` — `-E` is grep/ripgrep syntax, not a real `findstr` switch, and plain `findstr` doesn't support `|` alternation without `/R` regex mode. That combination silently returns empty (a false "all clear") instead of erroring, which caused a real missed-detection incident on 2026-08-05 — see [[dev_server_gotchas]] gotcha #6's recurrence note.
 
 For any hit, resolve the owning process before touching it:
 
