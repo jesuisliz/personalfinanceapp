@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Category } from "./api";
 import { categoryDotColor } from "./categoryColor";
 import { IconChevronDown } from "./icons";
 import { inputClass } from "./ui";
+
+type PanelPosition = { top?: number; bottom?: number; left: number; maxHeight: number };
 
 export function CategoryDropdown({
   categories,
@@ -14,24 +17,36 @@ export function CategoryDropdown({
   onChange: (categoryId: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [openUpward, setOpenUpward] = useState(false);
+  const [panelPosition, setPanelPosition] = useState<PanelPosition | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const PANEL_HEIGHT = 390; // max-h-96 (384px) + a hair of margin
+  const VIEWPORT_MARGIN = 8; // gap to leave against the viewport edge
 
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
+    // The panel is positioned from the button's rect at open-time; if the page
+    // (or a scrollable ancestor) scrolls while open, that rect goes stale, so close.
+    function handleScroll() {
+      setOpen(false);
+    }
     document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleKey);
+    window.addEventListener("scroll", handleScroll, true);
     return () => {
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
+      window.removeEventListener("scroll", handleScroll, true);
     };
   }, [open]);
 
@@ -48,7 +63,14 @@ export function CategoryDropdown({
       const rect = rootRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
-      setOpenUpward(spaceBelow < PANEL_HEIGHT && spaceAbove > spaceBelow);
+      const upward = spaceBelow < PANEL_HEIGHT && spaceAbove > spaceBelow;
+      const available = (upward ? spaceAbove : spaceBelow) - VIEWPORT_MARGIN;
+      const maxHeight = Math.max(120, Math.min(384, available));
+      setPanelPosition(
+        upward
+          ? { bottom: window.innerHeight - rect.top + 4, left: rect.left, maxHeight }
+          : { top: rect.bottom + 4, left: rect.left, maxHeight }
+      );
     }
     setOpen((o) => !o);
   }
@@ -70,38 +92,46 @@ export function CategoryDropdown({
         <IconChevronDown className="text-ink-muted shrink-0" />
       </button>
 
-      {open && (
-        <div
-          className={`absolute z-10 w-72 max-h-96 overflow-y-auto bg-surface border border-hairline-strong rounded-lg shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] py-1 ${
-            openUpward ? "bottom-full mb-1" : "mt-1"
-          }`}
-        >
-          <button
-            type="button"
-            className={`w-full text-left px-2 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
-              value === null ? "text-ink" : "text-ink-secondary"
-            }`}
-            onClick={() => selectOption(null)}
+      {open &&
+        panelPosition &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="fixed z-50 w-72 overflow-y-auto bg-surface border border-hairline-strong rounded-lg shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] py-1"
+            style={{
+              top: panelPosition.top,
+              bottom: panelPosition.bottom,
+              left: panelPosition.left,
+              maxHeight: panelPosition.maxHeight,
+            }}
           >
-            Uncategorized
-          </button>
-          <div className="grid grid-cols-2">
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`min-w-0 flex items-center gap-2 text-left px-2 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
-                  value === c.id ? "text-ink" : "text-ink-secondary"
-                }`}
-                onClick={() => selectOption(c.id)}
-              >
-                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: categoryDotColor(c.id) }} />
-                <span className="truncate">{c.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+            <button
+              type="button"
+              className={`w-full text-left px-2 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
+                value === null ? "text-ink" : "text-ink-secondary"
+              }`}
+              onClick={() => selectOption(null)}
+            >
+              Uncategorized
+            </button>
+            <div className="grid grid-cols-2">
+              {categories.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`min-w-0 flex items-center gap-2 text-left px-2 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
+                    value === c.id ? "text-ink" : "text-ink-secondary"
+                  }`}
+                  onClick={() => selectOption(c.id)}
+                >
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: categoryDotColor(c.id) }} />
+                  <span className="truncate">{c.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
