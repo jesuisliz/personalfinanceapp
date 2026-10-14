@@ -8,6 +8,8 @@
 
 **Tech Stack:** React 19 + TypeScript, Tailwind, vitest. No component-testing library in the project; the rendered panel is verified live (LLD: "The rendered panel itself is verified live").
 
+**Status:** DONE 2026-10-14 (commits 56335cb, 8e8cca4, 2ef4d14, c066e6b, plus the close-out review fixes). Deviations from this plan, recorded in the LLD: no backend was running on 8000 beforehand, so Task 4 had nothing to stop or restore; the regression sweep did not click Export CSV (browser download) or exercise the filter bar; the close-out review added `retryRequest` to `heldImport.ts` and strengthened tests 16-17 (32 frontend tests), and a follow-up live run verified the failed-retry status line.
+
 **Spec:** `docs/lld_import_overlap_guard_claude.md` ("Frontend changes", tests 16-17, "Live verification plan"). Phase 2 plan: `docs/plan_import_overlap_guard_phase2_claude.md`.
 
 ## Global Constraints
@@ -59,7 +61,7 @@ Frontend commands run from `frontend/`: `npx vitest run`, `npx tsc -b`. Work on 
 
 **Files:** Modify `frontend/src/api.ts`, `frontend/src/api.test.ts`
 
-- [ ] **Step 1: Write the failing tests** (append to `api.test.ts`; import `uploadCsv`)
+- [x] **Step 1: Write the failing tests** (append to `api.test.ts`; import `uploadCsv`)
 
 ```ts
 describe("uploadCsv", () => {
@@ -97,9 +99,9 @@ describe("uploadCsv", () => {
 
 Mutants these kill: joining hashes into one field (`getAll` length 1); JSON-encoding (`["[\"h1\",\"h2\"]"]`); sending only the first hash; appending an empty `accept_hashes` when the list is empty.
 
-- [ ] **Step 2: Run, expect FAIL** - `npx vitest run src/api.test.ts` (first test fails: `getAll` returns `[]`).
+- [x] **Step 2: Run, expect FAIL** - `npx vitest run src/api.test.ts` (first test fails: `getAll` returns `[]`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 export async function uploadCsv(file: File, acceptHashes: string[] = []): Promise<ImportSummary> {
@@ -111,8 +113,8 @@ export async function uploadCsv(file: File, acceptHashes: string[] = []): Promis
 }
 ```
 
-- [ ] **Step 4: Run, expect PASS**, then full `npx vitest run` and `npx tsc -b`.
-- [ ] **Step 5: Commit** `api.ts`, `api.test.ts` - "Send accept_hashes from uploadCsv".
+- [x] **Step 4: Run, expect PASS**, then full `npx vitest run` and `npx tsc -b`.
+- [x] **Step 5: Commit** `api.ts`, `api.test.ts` - "Send accept_hashes from uploadCsv".
 
 ---
 
@@ -155,7 +157,7 @@ Behaviour:
 | `retryFailed` | state null or different file: unchanged; else `busy: false`, selection kept |
 | `dismiss` | `null` |
 
-- [ ] **Step 1: Write the failing tests** (`heldImport.test.ts`)
+- [x] **Step 1: Write the failing tests** (`heldImport.test.ts`)
 
 Helper `summaryWith(hashes: string[])` builds an `ImportSummary` whose `suspected_duplicates` has one entry per hash and whose `rows_held_as_suspected_duplicate` equals `hashes.length`. Tests (each a separate `it`):
 
@@ -174,11 +176,11 @@ Helper `summaryWith(hashes: string[])` builds an `ImportSummary` whose `suspecte
 
 Files are distinct `new File([...], "a.csv")` / `"b.csv"` objects; test 11 also uses two `File`s with the **same name** to prove the check is object identity, not name.
 
-- [ ] **Step 2: Run, expect FAIL** (module missing).
-- [ ] **Step 3: Implement** `heldImportReducer` as a `switch` on `action.type` with a helper `openOrClose(file, summary)` shared by `uploadSucceeded` and `retrySucceeded`.
-- [ ] **Step 4: Run, expect PASS**; full `npx vitest run`, `npx tsc -b`.
-- [ ] **Step 5: Mutation check** (by hand, revert each): toggle without delete (test 3); `retrySucceeded` keeps old selection (6); skip the file-identity check (11); compare by `file.name` (11, same-name case); `retryFailed` clears selection (8); `uploadSucceeded` opens at 0 held (2). Each must fail at least one test.
-- [ ] **Step 6: Commit** both files - "Add held-import panel reducer".
+- [x] **Step 2: Run, expect FAIL** (module missing).
+- [x] **Step 3: Implement** `heldImportReducer` as a `switch` on `action.type` with a helper `openOrClose(file, summary)` shared by `uploadSucceeded` and `retrySucceeded`.
+- [x] **Step 4: Run, expect PASS**; full `npx vitest run`, `npx tsc -b`.
+- [x] **Step 5: Mutation check** (by hand, revert each): toggle without delete (test 3); `retrySucceeded` keeps old selection (6); skip the file-identity check (11); compare by `file.name` (11, same-name case); `retryFailed` clears selection (8); `uploadSucceeded` opens at 0 held (2). Each must fail at least one test.
+- [x] **Step 6: Commit** both files - "Add held-import panel reducer".
 
 ---
 
@@ -186,7 +188,7 @@ Files are distinct `new File([...], "a.csv")` / `"b.csv"` objects; test 11 also 
 
 **Files:** Create `frontend/src/HeldImportPanel.tsx`; modify `frontend/src/App.tsx`
 
-- [ ] **Step 1: `HeldImportPanel.tsx`**
+- [x] **Step 1: `HeldImportPanel.tsx`**
 
 Props: `state: NonNullable<HeldImportState>`, `onToggle(hash)`, `onImportSelected()`, `onDismiss()`.
 
@@ -201,7 +203,7 @@ Layout, reusing the "Transfers to review" card pattern (`Card className="mb-4 bo
   - **Already imported:** `existing_date · account_name`, `existing_description`, same amount
 - Footer: `PrimaryButton` **Import selected ({k})**, disabled when `k === 0` or `busy`; `SecondaryButton` **Dismiss**, disabled when `busy`.
 
-- [ ] **Step 2: Wire into `App.tsx`**
+- [x] **Step 2: Wire into `App.tsx`**
 
 ```ts
 const [heldImport, dispatchHeldImport] = useReducer(heldImportReducer, null);
@@ -244,8 +246,8 @@ async function handleImportSelected() {
 
 Render `{heldImport && <HeldImportPanel ... />}` directly below the upload/Detect/Export row, above `{error && ...}`.
 
-- [ ] **Step 3: Checks** - `npx tsc -b`, `npx vitest run` (all green, count reported), `npx vite build` succeeds.
-- [ ] **Step 4: Commit** `HeldImportPanel.tsx`, `App.tsx` - "Show held import rows with import-anyway selection".
+- [x] **Step 3: Checks** - `npx tsc -b`, `npx vitest run` (all green, count reported), `npx vite build` succeeds.
+- [x] **Step 4: Commit** `HeldImportPanel.tsx`, `App.tsx` - "Show held import rows with import-anyway selection".
 
 The panel's rendering is verified in Task 4, not by unit test.
 
@@ -255,15 +257,15 @@ The panel's rendering is verified in Task 4, not by unit test.
 
 Oracle first (raw SQL against the copy, before opening the browser): the Phase 2 live result table already gives the expected held sets and partners for the three files; re-derive the counts with SQL on the fresh copy (`SELECT COUNT(*) FROM transactions`, and the partner ids 401-408, 410-415, 417, 562, 563 exist) before looking at the UI.
 
-- [ ] **Step 1: Switch the backend to a DB copy on port 8000.** Note whether a normal backend is running on 8000 (`netstat -ano | grep :8000`). If so, stop it (reloader first, then worker - see dev-server gotchas). Copy `backend/finance.db` to `$SCRATCH/finance_phase3.db`. Start `DATABASE_PATH=$SCRATCH/finance_phase3.db venv/Scripts/python.exe -m uvicorn app.main:app --port 8000` (no `--reload`). Confirm with `curl -s localhost:8000/health` and that `curl -s localhost:8000/transactions | ` row count equals the copy's SQL count. Start Vite on 5173 if not running.
-- [ ] **Step 2: Walkthrough** (claude-in-chrome, new tab, screenshots at each step):
+- [x] **Step 1: Switch the backend to a DB copy on port 8000.** Note whether a normal backend is running on 8000 (`netstat -ano | grep :8000`). If so, stop it (reloader first, then worker - see dev-server gotchas). Copy `backend/finance.db` to `$SCRATCH/finance_phase3.db`. Start `DATABASE_PATH=$SCRATCH/finance_phase3.db venv/Scripts/python.exe -m uvicorn app.main:app --port 8000` (no `--reload`). Confirm with `curl -s localhost:8000/health` and that `curl -s localhost:8000/transactions | ` row count equals the copy's SQL count. Start Vite on 5173 if not running.
+- [x] **Step 2: Walkthrough** (claude-in-chrome, new tab, screenshots at each step):
   1. Import `data/ExportData_BOA_July2026_9837.csv`: status line `0 new, 2 already imported, 15 held as possible duplicates`; panel lists 15 rows, each new row beside its partner (spot-check 3 against the oracle ids); **Import selected (0)** disabled.
   2. Check IKEA -$127.35, click **Import selected (1)**: buttons disable during the request; status `1 new, 2 already imported, 14 held`; panel shows 14, none checked. SQL: count +1, the new row's hash is the accepted one.
   3. Click **Dismiss**: panel closes; SQL count unchanged.
   4. Import `ExportData_BOA_3938_Oct142026.csv`: 2 held (partners 562, 563). Then, with that panel open, import `ExportData_BOA_Aug2026_9837.csv` (0 held): the panel closes as soon as the upload starts and stays closed.
   5. Import `ExportData_BOA_1962_July2026.csv`: 24 held; check 2, uncheck 1, **Import selected (1)**: exactly 1 new (SQL), 23 held.
   6. Regression sweep: Transactions table, filters, Detect Transfers, Export CSV, Dashboard, Chat tab load with no console errors.
-- [ ] **Step 3: Restore.** Stop the copy backend (confirm port 8000 free), restart the normal backend the way it was running before (with `--reload` if it had it), confirm `/health` and that the real `finance.db` count is unchanged from before Task 4. Delete `$SCRATCH/finance_phase3.db`. Close the browser tab.
-- [ ] **Step 4: Docs.** LLD: status line ("Phase 3 built and live-verified"), decisions 1-4 under Frontend changes, a "Live result (Phase 3)" table. Commit the LLD and this plan.
-- [ ] **Step 5: Close-out review** (Opus subagent + Codex, against merge-base before Task 1): both run `npx vitest run` and `npx tsc -b` and report literal output; mutation pass over tests 16-17 (helpers included). Verify findings, fix inside approved direction, record in the LLD review log. Push.
-- [ ] **Step 6: Follow-ups** after push: update the import runbook artifact's manual overlap-check step (the guard now does it; the step becomes "review the held panel") and its stale data-through dates; update `overlap_guard_status` memory.
+- [x] **Step 3: Restore.** Stop the copy backend (confirm port 8000 free), restart the normal backend the way it was running before (with `--reload` if it had it), confirm `/health` and that the real `finance.db` count is unchanged from before Task 4. Delete `$SCRATCH/finance_phase3.db`. Close the browser tab.
+- [x] **Step 4: Docs.** LLD: status line ("Phase 3 built and live-verified"), decisions 1-4 under Frontend changes, a "Live result (Phase 3)" table. Commit the LLD and this plan.
+- [x] **Step 5: Close-out review** (Opus subagent + Codex, against merge-base before Task 1): both run `npx vitest run` and `npx tsc -b` and report literal output; mutation pass over tests 16-17 (helpers included). Verify findings, fix inside approved direction, record in the LLD review log. Push.
+- [x] **Step 6: Follow-ups** after push: update the import runbook artifact's manual overlap-check step (the guard now does it; the step becomes "review the held panel") and its stale data-through dates; update `overlap_guard_status` memory.

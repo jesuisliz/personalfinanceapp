@@ -1,6 +1,6 @@
 # LLD: Import overlap guard - hold likely cross-format duplicates
 
-Status: DRAFT 2026-10-14. Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Ready for phase planning. Phase 1 (pairing function, `backend/app/imports/overlap.py`) built 2026-10-14. Phase 2 (pipeline + API wiring, plus the status line pulled forward from Phase 3; plan `docs/plan_import_overlap_guard_phase2_claude.md`) built and live-verified on a DB copy 2026-10-14. Phase 3 (accept panel; plan `docs/plan_import_overlap_guard_phase3_claude.md`) built and live-verified in the browser on a DB copy 2026-10-14.
+Status: COMPLETE 2026-10-14 (all three phases built, reviewed, live-verified). Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Phase 1 (pairing function, `backend/app/imports/overlap.py`) built 2026-10-14. Phase 2 (pipeline + API wiring, plus the status line pulled forward from Phase 3; plan `docs/plan_import_overlap_guard_phase2_claude.md`) built and live-verified on a DB copy 2026-10-14. Phase 3 (accept panel; plan `docs/plan_import_overlap_guard_phase3_claude.md`) built and live-verified in the browser on a DB copy 2026-10-14.
 
 ## Problem
 
@@ -174,15 +174,19 @@ Merchant/category rule application after insert is unchanged.
 - When `rows_held_as_suspected_duplicate > 0`, show a panel under the upload control: one row per
   held transaction, new vs existing side by side (date, description, amount), each with an
   unchecked "import anyway" checkbox, plus **Import selected** and **Dismiss** buttons.
-- Today `handleFileUpload` keeps the `File` only in a local variable. Add a `pendingImport` state
-  `{ file, summary }`, set when a response has held rows. The `File` stays readable after the
-  input's `value` is reset in `finally` (it would only fail if the file changed on disk).
-- **Import selected** re-sends `pendingImport.file` with the checked hashes, then replaces the panel
+- Panel state is `{ file, summary, selected, busy }` (or null when no panel), set when a response
+  has held rows. Keeping the `File` object works because it stays readable after the input's `value`
+  is reset in `finally` (it would only fail if the file changed on disk).
+- **Import selected** re-sends that same `File` with the checked hashes (`retryRequest`), then replaces the panel
   with the new response's held list (closing it if none remain). **Dismiss** clears
   `pendingImport`; held rows stay out.
-- Starting any upload clears `pendingImport` and the checked set immediately, and the panel's
-  buttons are disabled while a request is in flight, so a stale panel or a double-submit can't
-  happen. The panel state transitions live in a small pure reducer so they can be unit-tested.
+- Starting any upload clears the panel and the checked set immediately, and the panel's
+  checkboxes and buttons are disabled while a request is in flight. The panel state transitions
+  live in a small pure reducer so they can be unit-tested. Limits, corrected in Phase 3 review:
+  the disabled state is the only double-submit guard (the handler doesn't re-check `busy`; a
+  repeated POST is harmless because accepted rows hash-skip, but its "0 new" status could
+  overwrite the first one's), and overlapping uploads are only partly guarded (decisions 1 and 3
+  below).
 
 `frontend/src/api.ts`: `uploadCsv(file, acceptHashes?)` and the extended `ImportSummary` type.
 
@@ -202,6 +206,11 @@ Phase 3 decisions (2026-10-14; built as `frontend/src/heldImport.ts` reducer + `
 5. **The "Already imported" side shows the existing row's raw `description`** (what Phase 2's API
    returns), not its cleaned name: e.g. `Online Transfer From Chk 1962 Confirmation# XX2131` rather
    than `Transfer - Checking 1962`. Kept: raw text is the better evidence when judging a duplicate.
+6. **Partial success shows as failure (known, Phase 3 review).** If a retry inserts rows but a later
+   rule step fails (the documented partial-success contract above), the status line reads "Failed
+   to import selected rows..." although the rows are in the DB and the panel still lists them.
+   Retrying converges (those rows hash-skip, the rest stay held). Not fixed: rare, and nothing is
+   lost or doubled.
 
 ### Out of scope
 
@@ -311,9 +320,14 @@ Frontend (vitest):
 
 16. `uploadCsv(file, ["h1", "h2"])` builds FormData with `file` and two repeated `accept_hashes`
     entries (fetch stubbed); with no hashes, no `accept_hashes` entry.
-17. The panel reducer: response with held rows opens the panel; toggling selects/deselects;
-    a retry response replaces the held list (and closes at zero); dismiss clears; starting a new
-    upload clears panel and selection; a failed retry keeps the panel and selection.
+17. The panel reducer: response with held rows opens the panel (and a later upload's response
+    replaces an open one); toggling selects/deselects without touching `busy`; a retry response
+    replaces the held list, keeps the same `File`, and closes at zero; dismiss and a new upload
+    clear the panel with or without a selection; a failed retry keeps the panel and selection; a
+    late retry response for a different file (or after dismiss) is ignored, including when the
+    other panel is itself busy and when the late response holds nothing. `retryRequest` returns the
+    same `File` and only the checked hashes. Test 16 also checks the sent file's contents, the
+    returned summary, and that a server error rejects with its `detail`.
 
 The rendered panel itself is verified live.
 
@@ -371,11 +385,41 @@ claude-in-chrome. Oracle first: raw SQL on the copy (1160 rows; partners 401-408
 | 5 | Import `ExportData_BOA_1962_July2026.csv`; check 2 rows, uncheck 1, Import selected (1) | `0 new, 10 already imported, 24 held`; the ambiguous Xoom -$100 pairs with the Jul 1 row (483); after import `1 new, 10 already imported, 23 held` | SQL: copy 1161 -> 1162, new row id 1203 is the checked Xoom (`...454947`) only |
 | 6 | Regression: Detect Transfers, Dashboard, Chat, Planning, back to Transactions | all render; both cards still shown after tab switches; table 1162 rows; no console errors since tracking began (mid-session) | - |
 
-Export CSV was not clicked (browser download; code untouched). Three browser-tool calls timed out
+Follow-up live run after the review fixes (fresh copy, `retryRequest` now in App.tsx):
+`ExportData_BOA_3938_Oct142026.csv` held 2; accepting the $0.35 interest row gave exactly one new
+row by SQL (id 1202, Interest Earned, BOA Savings). Then, with the $250.00 row checked and the
+backend stopped, Import selected showed `Failed to import selected rows from
+ExportData_BOA_3938_Oct142026.csv: TypeError: Failed to fetch`; the panel stayed open with the row
+still checked and every control re-enabled. Real DB 1160 rows throughout.
+
+Not exercised, against the plan's regression sweep: Export CSV (it triggers a browser download;
+its code is untouched) and the filter bar. Three browser-tool calls timed out
 (two multi-second scripts, one zoom); the page itself was responsive each time, confirmed by the
 next screenshot.
 
 ## Review log
+
+Phase 3 close-out review, 2026-10-14 (Opus subagent + Codex, base 54dbacd). Opus ran vitest (28
+passed) and `tsc -b` (clean); Codex's read-only sandbox blocked both (EPERM writing Vite/tsc temp
+files), so its test claims rest on reading plus a non-incremental tsc. No High finding; both agreed
+no path imports an unchecked row or drops a checked one. Every claimed surviving mutant was
+re-run here before acting, and all 11 were real (each passed the full suite):
+
+- Reducer (Opus 1-2, Codex 2): late-retry guard keyed on `busy` instead of file; a zero-held late
+  retry closing another file's panel; toggle setting `busy`; `uploadStarted` / `dismiss` only
+  working with or without a selection; `uploadSucceeded` not replacing an open panel; a retry
+  storing a replacement `File`.
+- `uploadCsv` (Codex 1, Opus 4): file sent only with hashes; an empty replacement `File`; errors not
+  propagated (`res.json()` instead of `asJson`).
+- App wiring (Opus 3): sending every held hash instead of the checked ones. Fixed by moving the
+  request into `retryRequest(state)` in `heldImport.ts` and testing it.
+
+Tests added/strengthened (32 frontend tests); all 11 mutants now fail. The never-exercised
+failed-retry status line was verified live (above). Docs: stale `pendingImport` paragraph and
+the "can't happen" claim rewritten; header status; test 17 description; decision 6 (partial
+success shows as failure). Accepted, not changed: the `summaryWith` helper sets the held count
+equal to the list length (equivalent by the API contract, `pipeline.py` sets it from
+`len(suspects)`); hash order/dedup in `uploadCsv` (backend uses a frozenset).
 
 Phase 2 close-out review, 2026-10-14 (Opus subagent + Codex; both ran the backend suite, 227 passed;
 Opus ran vitest, 14 passed; Codex's sandbox could not create Vite's temp dir). No correctness defect.
