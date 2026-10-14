@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchTransactions } from "./api";
+import { fetchTransactions, uploadCsv } from "./api";
 
 function stubFetch(body: unknown = []) {
   const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => body });
@@ -43,5 +43,37 @@ describe("fetchTransactions", () => {
 
     expect(result).toHaveLength(1001);
     expect(result).toEqual(rows);
+  });
+});
+
+describe("uploadCsv", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function sentForm(fetchMock: ReturnType<typeof vi.fn>): FormData {
+    return fetchMock.mock.calls[0][1].body as FormData;
+  }
+
+  it("sends the file and one accept_hashes entry per hash, in order", async () => {
+    const fetchMock = stubFetch({});
+    const file = new File(["a,b\n"], "x.csv", { type: "text/csv" });
+
+    await uploadCsv(file, ["h1", "h2"]);
+
+    const form = sentForm(fetchMock);
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(requestedUrl(fetchMock).pathname).toBe("/imports");
+    expect((form.get("file") as File).name).toBe("x.csv");
+    expect(form.getAll("accept_hashes")).toEqual(["h1", "h2"]);
+  });
+
+  it("sends no accept_hashes entry when no hashes are given", async () => {
+    const fetchMock = stubFetch({});
+    const file = new File(["a,b\n"], "x.csv", { type: "text/csv" });
+
+    await uploadCsv(file);
+
+    expect(sentForm(fetchMock).has("accept_hashes")).toBe(false);
   });
 });

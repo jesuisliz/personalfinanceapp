@@ -177,9 +177,10 @@ export async function updateTransaction(
   return asJson(res, "Failed to update transaction");
 }
 
-export async function uploadCsv(file: File): Promise<ImportSummary> {
+export async function uploadCsv(file: File, acceptHashes: string[] = []): Promise<ImportSummary> {
   const formData = new FormData();
   formData.append("file", file);
+  for (const hash of acceptHashes) formData.append("accept_hashes", hash);
   const res = await fetch(`${API_BASE}/imports`, { method: "POST", body: formData });
   return asJson(res, "Import failed");
 }
