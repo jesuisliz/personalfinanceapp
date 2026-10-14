@@ -1,6 +1,6 @@
 # LLD: Import overlap guard - hold likely cross-format duplicates
 
-Status: DRAFT 2026-10-14. Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Ready for phase planning.
+Status: DRAFT 2026-10-14. Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Ready for phase planning. Phase 1 (pairing function, `backend/app/imports/overlap.py`) built 2026-10-14.
 
 ## Problem
 
@@ -54,6 +54,13 @@ the assignment that:
 1. holds the **most** rows (safety: never let a duplicate in because a neighbour took its partner);
 2. then has the **smallest total date gap**;
 3. then is earliest by (new row date, new row hash) - a content key, never file position.
+
+Clarified in Phase 1 (2026-10-14): criterion 3 alone does not choose between two assignments that
+hold the same new rows with the same total gap but different partners. The full key is the sorted
+tuple of `(new date, new hash, existing date, existing id)` per pair, compared lexicographically;
+existing id is a DB identity, not file position, so order independence holds. In the oversized
+fallback each held row is shown against its closest candidate by `(gap, existing date, existing id)`,
+so two held rows may show the same existing row.
 
 Clusters are tiny: across all 1201 pre-dedupe rows, same-account same-amount chains within 3 days
 had sizes 1 (1054), 2 (68), 3 (2) and 5 (1). Exhaustive search over a cluster is therefore cheap. A
@@ -189,15 +196,19 @@ file boundary falls between them. These get held and need one click to accept.
 
 ### Measured against real import history (2026-10-14)
 
-Replay method (read-only, script kept out of the repo): re-parse every file in `data/` with the
+Replay method (read-only, `backend/scripts/replay_overlap_guard.py`): re-parse every file in `data/` with the
 app's own parsers and `compute_row_hashes`; each row in the pre-dedupe DB backup is attributed to
 the earliest file (by mtime) that produces its hash (all 1201 rows were traceable). Files are then
 replayed in mtime order; a file's rows that actually entered the DB are paired by the rule above
 against rows from earlier files. A held row still in today's cleaned DB is a false positive; a held
-row among the 41 deleted is a true positive. Run with both file-order greedy and closest-first
-greedy pairing; identical results. The proposed cluster search can only hold more rows than
-closest-first, never fewer, and every cluster in this history is small, so it is not expected to
-change these numbers; the replay will be re-run against the real implementation.
+row among the 41 deleted is a true positive. Re-run 2026-10-14 against the real implementation
+(`find_suspected_duplicates`): the table below is its output. The 2, 3, 4 and 7-day rows are
+identical to the earlier closest-first greedy prototype. At 14 days greedy found 8 false positives
+and the cluster search finds 9: two -$250 1962 transfers (Apr 23, Apr 24) each pair with an
+existing May 7 / May 8 transfer 14 days away, where greedy paired Apr 24 to May 7 and stranded
+Apr 23. That is rule 1 (most held) working as designed. An earlier draft of this section said
+file-order and closest-first greedy gave identical results; the committed greedy script gives 8 at
+14 days, not 9, so that claim was not accurate for the 14-day row.
 
 | Window | Duplicates held (of 41) | Missed | False positives |
 |---|---|---|---|
