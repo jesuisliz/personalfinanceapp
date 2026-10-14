@@ -35,11 +35,24 @@ export interface TransferMatch {
   status: string;
 }
 
+export interface SuspectedDuplicate {
+  row_hash: string;
+  account_name: string;
+  date: string;
+  description: string;
+  amount_cents: number;
+  existing_id: number;
+  existing_date: string;
+  existing_description: string;
+}
+
 export interface ImportSummary {
   filename: string;
   rows_seen: number;
   rows_inserted: number;
   rows_skipped_as_duplicate: number;
+  rows_held_as_suspected_duplicate: number;
+  suspected_duplicates: SuspectedDuplicate[];
 }
 
 export interface MonthlySummary {

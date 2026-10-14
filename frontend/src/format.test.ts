@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { transactionsToCsv } from "./format";
+import { formatImportStatus, transactionsToCsv } from "./format";
 import type { Account, Category, Transaction } from "./api";
 
 function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
@@ -51,5 +51,26 @@ describe("transactionsToCsv", () => {
     const [, row] = csv.split("\r\n");
 
     expect(row).toBe("2026-07-01,Checking,Plain Merchant,,,-$12.34");
+  });
+});
+
+describe("formatImportStatus", () => {
+  const base = {
+    filename: "x.csv",
+    rows_seen: 55,
+    rows_inserted: 40,
+    rows_skipped_as_duplicate: 0,
+    rows_held_as_suspected_duplicate: 15,
+    suspected_duplicates: [],
+  };
+
+  it("reports held rows when there are any", () => {
+    expect(formatImportStatus(base)).toBe("x.csv: 40 new, 0 already imported, 15 held as possible duplicates");
+  });
+
+  it("keeps today's wording when nothing is held", () => {
+    expect(formatImportStatus({ ...base, rows_seen: 40, rows_held_as_suspected_duplicate: 0 })).toBe(
+      "x.csv: 40 new, 0 already imported"
+    );
   });
 });

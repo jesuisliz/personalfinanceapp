@@ -1,4 +1,4 @@
-import type { Account, Category, Transaction } from "./api";
+import type { Account, Category, ImportSummary, Transaction } from "./api";
 
 export function formatAmount(cents: number): string {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -14,6 +14,12 @@ export function formatRelativeTime(isoString: string): string {
   const days = hours / 24;
   if (days < 7) return `${Math.floor(days)}d ago`;
   return new Date(isoString).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function formatImportStatus(summary: ImportSummary): string {
+  const base = `${summary.filename}: ${summary.rows_inserted} new, ${summary.rows_skipped_as_duplicate} already imported`;
+  const held = summary.rows_held_as_suspected_duplicate;
+  return held > 0 ? `${base}, ${held} held as possible duplicates` : base;
 }
 
 function csvField(value: string): string {

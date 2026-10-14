@@ -13,7 +13,7 @@ import {
   type Transaction,
   type TransferMatch,
 } from "./api";
-import { formatAmount, transactionsToCsv } from "./format";
+import { formatAmount, formatImportStatus, transactionsToCsv } from "./format";
 import { sortTransactions, type SortDirection, type SortKey } from "./sort";
 import Dashboard from "./Dashboard";
 import Chat from "./Chat";
@@ -157,9 +157,7 @@ export default function App() {
     setUploadStatus(`Importing ${file.name}...`);
     try {
       const summary = await uploadCsv(file);
-      setUploadStatus(
-        `${summary.filename}: ${summary.rows_inserted} new, ${summary.rows_skipped_as_duplicate} already imported`
-      );
+      setUploadStatus(formatImportStatus(summary));
       reload();
     } catch (err) {
       setUploadStatus(`Failed to import ${file.name}: ${String(err)}`);
