@@ -65,15 +65,36 @@ describe("uploadCsv", () => {
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
     expect(requestedUrl(fetchMock).pathname).toBe("/imports");
     expect((form.get("file") as File).name).toBe("x.csv");
+    expect(await (form.get("file") as File).text()).toBe("a,b\n");
     expect(form.getAll("accept_hashes")).toEqual(["h1", "h2"]);
   });
 
-  it("sends no accept_hashes entry when no hashes are given", async () => {
+  it("sends the file but no accept_hashes entry when no hashes are given", async () => {
     const fetchMock = stubFetch({});
     const file = new File(["a,b\n"], "x.csv", { type: "text/csv" });
 
     await uploadCsv(file);
 
-    expect(sentForm(fetchMock).has("accept_hashes")).toBe(false);
+    const form = sentForm(fetchMock);
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(requestedUrl(fetchMock).pathname).toBe("/imports");
+    expect(await (form.get("file") as File).text()).toBe("a,b\n");
+    expect(form.has("accept_hashes")).toBe(false);
+  });
+
+  it("returns the server's summary", async () => {
+    const summary = { filename: "x.csv", rows_seen: 3 };
+    stubFetch(summary);
+
+    expect(await uploadCsv(new File(["a"], "x.csv"))).toEqual(summary);
+  });
+
+  it("rejects with the server's detail when the server responds with an error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ detail: "bad file" }) })
+    );
+
+    await expect(uploadCsv(new File(["a"], "x.csv"))).rejects.toThrow("bad file");
   });
 });

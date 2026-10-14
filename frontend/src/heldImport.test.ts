@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImportSummary } from "./api";
-import { heldImportReducer, type HeldImportState } from "./heldImport";
+import { heldImportReducer, retryRequest, type HeldImportState } from "./heldImport";
 
 function summaryWith(hashes: string[]): ImportSummary {
   return {
@@ -52,6 +52,7 @@ describe("heldImportReducer", () => {
 
     const selected = heldImportReducer(opened, { type: "toggle", hash: "a" });
     expect([...selected!.selected]).toEqual(["a"]);
+    expect(selected!.busy).toBe(false);
     expect(opened!.selected.size).toBe(0);
 
     const deselected = heldImportReducer(selected, { type: "toggle", hash: "a" });
@@ -80,6 +81,7 @@ describe("heldImportReducer", () => {
     state = heldImportReducer(state, { type: "retrySucceeded", file: fileA, summary: summaryWith(["b", "c"]) });
 
     expect(heldHashes(state)).toEqual(["b", "c"]);
+    expect(state?.file).toBe(fileA);
     expect(state?.selected.size).toBe(0);
     expect(state?.busy).toBe(false);
   });
@@ -105,14 +107,31 @@ describe("heldImportReducer", () => {
     expect(state?.busy).toBe(false);
   });
 
-  it("closes the panel on dismiss", () => {
-    expect(heldImportReducer(openPanel(fileA, ["a"]), { type: "dismiss" })).toBeNull();
+  it("closes the panel on dismiss, with or without a selection", () => {
+    const opened = openPanel(fileA, ["a"]);
+    const selected = heldImportReducer(opened, { type: "toggle", hash: "a" });
+
+    expect(heldImportReducer(opened, { type: "dismiss" })).toBeNull();
+    expect(heldImportReducer(selected, { type: "dismiss" })).toBeNull();
   });
 
-  it("clears the panel and selection as soon as a new upload starts", () => {
-    const selected = heldImportReducer(openPanel(fileA, ["a"]), { type: "toggle", hash: "a" });
+  it("clears the panel as soon as a new upload starts, with or without a selection", () => {
+    const opened = openPanel(fileA, ["a"]);
+    const selected = heldImportReducer(opened, { type: "toggle", hash: "a" });
 
+    expect(heldImportReducer(opened, { type: "uploadStarted" })).toBeNull();
     expect(heldImportReducer(selected, { type: "uploadStarted" })).toBeNull();
+  });
+
+  it("replaces an open panel with the latest upload's response", () => {
+    const state = heldImportReducer(openPanel(fileA, ["a"]), {
+      type: "uploadSucceeded",
+      file: fileB,
+      summary: summaryWith(["x", "y"]),
+    });
+
+    expect(state?.file).toBe(fileB);
+    expect(heldHashes(state)).toEqual(["x", "y"]);
   });
 
   it("ignores a late retry response for a file the panel no longer shows", () => {
@@ -121,16 +140,23 @@ describe("heldImportReducer", () => {
       state = heldImportReducer(state, { type: "retryStarted" });
       state = heldImportReducer(state, { type: "uploadStarted" });
       state = heldImportReducer(state, { type: "uploadSucceeded", file: otherFile, summary: summaryWith(["x"]) });
-      const otherPanel = heldImportReducer(state, { type: "toggle", hash: "x" });
+      state = heldImportReducer(state, { type: "toggle", hash: "x" });
+      const otherPanel = heldImportReducer(state, { type: "retryStarted" });
 
       const afterSuccess = heldImportReducer(otherPanel, {
         type: "retrySucceeded",
         file: fileA,
         summary: summaryWith(["a"]),
       });
+      const afterEmptySuccess = heldImportReducer(otherPanel, {
+        type: "retrySucceeded",
+        file: fileA,
+        summary: summaryWith([]),
+      });
       const afterFailure = heldImportReducer(otherPanel, { type: "retryFailed", file: fileA });
 
       expect(afterSuccess).toBe(otherPanel);
+      expect(afterEmptySuccess).toBe(otherPanel);
       expect(afterFailure).toBe(otherPanel);
       expect(heldHashes(afterSuccess)).toEqual(["x"]);
     }
@@ -143,5 +169,18 @@ describe("heldImportReducer", () => {
 
     expect(heldImportReducer(state, { type: "retrySucceeded", file: fileA, summary: summaryWith(["a"]) })).toBeNull();
     expect(heldImportReducer(state, { type: "retryFailed", file: fileA })).toBeNull();
+  });
+});
+
+describe("retryRequest", () => {
+  it("re-sends the same File with only the checked hashes", () => {
+    let state = openPanel(fileA, ["a", "b", "c"]);
+    state = heldImportReducer(state, { type: "toggle", hash: "c" });
+    state = heldImportReducer(state, { type: "toggle", hash: "a" });
+
+    const request = retryRequest(state!);
+
+    expect(request.file).toBe(fileA);
+    expect([...request.acceptHashes].sort()).toEqual(["a", "c"]);
   });
 });

@@ -19,7 +19,7 @@ import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
 import HeldImportPanel from "./HeldImportPanel";
-import { heldImportReducer } from "./heldImport";
+import { heldImportReducer, retryRequest } from "./heldImport";
 import { Card, SecondaryButton, inputClass } from "./ui";
 import { CategoryDropdown } from "./CategoryDropdown";
 import {
@@ -173,11 +173,11 @@ export default function App() {
 
   async function handleImportSelected() {
     if (!heldImport) return;
-    const { file, selected } = heldImport;
+    const { file, acceptHashes } = retryRequest(heldImport);
     dispatchHeldImport({ type: "retryStarted" });
-    setUploadStatus(`Importing ${selected.size} selected row${selected.size === 1 ? "" : "s"} from ${file.name}...`);
+    setUploadStatus(`Importing ${acceptHashes.length} selected row${acceptHashes.length === 1 ? "" : "s"} from ${file.name}...`);
     try {
-      const summary = await uploadCsv(file, [...selected]);
+      const summary = await uploadCsv(file, acceptHashes);
       setUploadStatus(formatImportStatus(summary));
       dispatchHeldImport({ type: "retrySucceeded", file, summary });
       reload();

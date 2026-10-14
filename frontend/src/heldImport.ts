@@ -30,6 +30,11 @@ function toggled(selected: ReadonlySet<string>, hash: string): Set<string> {
   return next;
 }
 
+/** What "Import selected" sends: the same File object, with only the checked hashes. */
+export function retryRequest(state: NonNullable<HeldImportState>): { file: File; acceptHashes: string[] } {
+  return { file: state.file, acceptHashes: [...state.selected] };
+}
+
 /**
  * Panel transitions for held import rows. Retry results apply only while the panel still shows
  * the same File object the retry was sent with, so a late response can't reopen a stale panel.
