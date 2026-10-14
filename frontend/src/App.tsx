@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import {
   fetchAccounts,
   fetchCategories,
@@ -18,6 +18,8 @@ import { sortTransactions, type SortDirection, type SortKey } from "./sort";
 import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
+import HeldImportPanel from "./HeldImportPanel";
+import { heldImportReducer } from "./heldImport";
 import { Card, SecondaryButton, inputClass } from "./ui";
 import { CategoryDropdown } from "./CategoryDropdown";
 import {
@@ -130,6 +132,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [heldImport, dispatchHeldImport] = useReducer(heldImportReducer, null);
   const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
@@ -154,15 +157,33 @@ export default function App() {
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    dispatchHeldImport({ type: "uploadStarted" });
     setUploadStatus(`Importing ${file.name}...`);
     try {
       const summary = await uploadCsv(file);
       setUploadStatus(formatImportStatus(summary));
+      dispatchHeldImport({ type: "uploadSucceeded", file, summary });
       reload();
     } catch (err) {
       setUploadStatus(`Failed to import ${file.name}: ${String(err)}`);
     } finally {
       e.target.value = "";
+    }
+  }
+
+  async function handleImportSelected() {
+    if (!heldImport) return;
+    const { file, selected } = heldImport;
+    dispatchHeldImport({ type: "retryStarted" });
+    setUploadStatus(`Importing ${selected.size} selected row${selected.size === 1 ? "" : "s"} from ${file.name}...`);
+    try {
+      const summary = await uploadCsv(file, [...selected]);
+      setUploadStatus(formatImportStatus(summary));
+      dispatchHeldImport({ type: "retrySucceeded", file, summary });
+      reload();
+    } catch (err) {
+      setUploadStatus(`Failed to import selected rows from ${file.name}: ${String(err)}`);
+      dispatchHeldImport({ type: "retryFailed", file });
     }
   }
 
@@ -479,6 +500,15 @@ export default function App() {
 
               {uploadStatus && <span className="text-sm text-ink-muted">{uploadStatus}</span>}
             </div>
+
+            {heldImport && (
+              <HeldImportPanel
+                state={heldImport}
+                onToggle={(hash) => dispatchHeldImport({ type: "toggle", hash })}
+                onImportSelected={handleImportSelected}
+                onDismiss={() => dispatchHeldImport({ type: "dismiss" })}
+              />
+            )}
 
             {error && <p className="text-critical mb-4">{error}</p>}
 
