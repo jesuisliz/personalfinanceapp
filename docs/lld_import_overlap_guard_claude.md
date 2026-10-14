@@ -63,7 +63,12 @@ fallback each held row is shown against its closest candidate by `(gap, existing
 so two held rows may show the same existing row.
 
 Clusters are tiny: across all 1201 pre-dedupe rows, same-account same-amount chains within 3 days
-had sizes 1 (1054), 2 (68), 3 (2) and 5 (1). Exhaustive search over a cluster is therefore cheap. A
+had sizes 1 (1054), 2 (68), 3 (2) and 5 (1). Exhaustive search over a
+cluster is therefore cheap for real data. At the threshold it is not by itself: a dense 8x8 cluster
+took 3.9-5.1 s unpruned (Phase 1 review). The search skips branches that can no longer hold as many
+rows as the best found so far (rank criterion 1 is compared first, so they can never win); that
+brings the worst dense shape at the threshold to about 0.3 s, with identical results on 3000 random
+clusters against the unpruned version. A
 cluster with more than 8 new or 8 existing rows (never seen) skips the search and holds every new
 row that has any candidate, leaving the call to the user.
 
@@ -333,3 +338,14 @@ Codex, 2026-10-14 (read-only, against the code):
   together.
 - Low - stale panel / double-submit. Applied.
 - Confirmed sound: occurrence hashing + unique constraint, transfer detection does not interact.
+
+Phase 1 implementation review, 2026-10-14 (Opus subagent + Codex, both ran the tests: 18 / 208 passed;
+Codex needed `-s` under its read-only sandbox). No correctness defect in `overlap.py`. Applied:
+
+- Important (both) - surviving mutants: total gap untested across several pairs (squared-gap rank),
+  test 5's farther row was also the later date ("skip only if forced"), no existing-id tie or
+  same-date new-row tie test, oversized fallback partner choice unpinned, same-list rule untested
+  with two rows, month-boundary partition. Added tests R7-R13; each named mutant verified killed.
+- Important (both) - dense 8x8 search 3.9-5.1 s. Added count-bound pruning (above); test R14 pins
+  it under 1 s. Lowering `MAX_CLUSTER_SIDE` was the alternative, rejected because it changes which
+  rows are paired.

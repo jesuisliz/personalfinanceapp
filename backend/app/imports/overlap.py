@@ -105,12 +105,18 @@ def _best_assignment(
     new_rows: list[NewRow],
     existing_rows: list[ExistingRow],
 ) -> list[tuple[int, int]]:
-    """Try every one-to-one assignment in the cluster and return the best-ranked one."""
+    """Search every one-to-one assignment in the cluster and return the best-ranked one.
+
+    Branches that can no longer hold as many rows as the best found so far are skipped;
+    they could never outrank it, since the number held is compared first.
+    """
     order = sorted(cluster_new, key=lambda i: (new_rows[i].date, new_rows[i].row_hash))
     best: tuple[tuple, list[tuple[int, int]]] | None = None
 
     def search(position: int, used: set[int], pairs: list[tuple[int, int]]) -> None:
         nonlocal best
+        if best is not None and len(pairs) + len(order) - position < -best[0][0]:
+            return  # cannot hold as many rows as the best found so far
         if position == len(order):
             rank = _rank(pairs, new_rows, existing_rows)
             if best is None or rank < best[0]:
