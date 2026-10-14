@@ -14,7 +14,7 @@ import {
   type TransferMatch,
 } from "./api";
 import { formatAmount, transactionsToCsv } from "./format";
-import { sortTransactionsByDate, type SortDirection } from "./sort";
+import { sortTransactions, type SortDirection, type SortKey } from "./sort";
 import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
@@ -37,6 +37,50 @@ import {
   IconUpload,
   IconX,
 } from "./icons";
+
+const DEFAULT_SORT_DIRECTION: Record<SortKey, SortDirection> = { date: "desc", amount: "asc" };
+
+const SORT_DESCRIPTIONS: Record<SortKey, Record<SortDirection, string>> = {
+  date: { desc: "Newest first", asc: "Oldest first" },
+  amount: { asc: "Biggest expenses first", desc: "Biggest income first" },
+};
+
+/** Table header that sorts by its column; only the active column shows an arrow and aria-sort. */
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onToggle,
+  alignRight = false,
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: { key: SortKey; direction: SortDirection };
+  onToggle: (key: SortKey) => void;
+  alignRight?: boolean;
+}) {
+  const isActive = sort.key === sortKey;
+  const nextDirection = isActive ? (sort.direction === "asc" ? "desc" : "asc") : DEFAULT_SORT_DIRECTION[sortKey];
+  const title = isActive
+    ? `${SORT_DESCRIPTIONS[sortKey][sort.direction]} (click for ${SORT_DESCRIPTIONS[sortKey][nextDirection].toLowerCase()})`
+    : `Sort: ${SORT_DESCRIPTIONS[sortKey][nextDirection].toLowerCase()}`;
+  return (
+    <th
+      className={`p-2 font-medium ${alignRight ? "text-right" : ""}`}
+      aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 hover:text-ink ${isActive ? "text-ink" : ""}`}
+        title={title}
+        onClick={() => onToggle(sortKey)}
+      >
+        {label}
+        {isActive && <IconChevronDown className={sort.direction === "asc" ? "rotate-180" : ""} />}
+      </button>
+    </th>
+  );
+}
 
 const TABS = [
   { key: "transactions", label: "Transactions", icon: IconList },
@@ -82,7 +126,7 @@ export default function App() {
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
   const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
-  const [dateSortDirection, setDateSortDirection] = useState<SortDirection>("desc");
+  const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: "date", direction: "desc" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
@@ -211,7 +255,16 @@ export default function App() {
     )
     .filter((t) => minAmountCents === null || Number.isNaN(minAmountCents) || t.amount_cents >= minAmountCents)
     .filter((t) => maxAmountCents === null || Number.isNaN(maxAmountCents) || t.amount_cents <= maxAmountCents);
-  const visibleTransactions = sortTransactionsByDate(filteredTransactions, dateSortDirection);
+  const visibleTransactions = sortTransactions(filteredTransactions, sort.key, sort.direction);
+
+  /** Flip the active column's direction, or switch to another column in its default direction. */
+  function toggleSort(key: SortKey) {
+    setSort((current) =>
+      current.key === key
+        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: DEFAULT_SORT_DIRECTION[key] }
+    );
+  }
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -444,25 +497,12 @@ export default function App() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left border-b border-hairline bg-surface-2 text-ink-secondary">
-                      <th
-                        className="p-2 font-medium"
-                        aria-sort={dateSortDirection === "asc" ? "ascending" : "descending"}
-                      >
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 hover:text-ink"
-                          title={dateSortDirection === "asc" ? "Oldest first (click for newest first)" : "Newest first (click for oldest first)"}
-                          onClick={() => setDateSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
-                        >
-                          Date
-                          <IconChevronDown className={dateSortDirection === "asc" ? "rotate-180" : ""} />
-                        </button>
-                      </th>
+                      <SortableHeader label="Date" sortKey="date" sort={sort} onToggle={toggleSort} />
                       <th className="p-2 font-medium">Account</th>
                       <th className="p-2 font-medium">Description</th>
                       <th className="p-2 font-medium">Category</th>
                       <th className="p-2 font-medium">Note</th>
-                      <th className="p-2 font-medium text-right">Amount</th>
+                      <SortableHeader label="Amount" sortKey="amount" sort={sort} onToggle={toggleSort} alignRight />
                     </tr>
                   </thead>
                   <tbody>
