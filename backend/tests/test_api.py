@@ -430,3 +430,48 @@ def test_list_transactions_limit_has_no_default_or_maximum():
 
     assert limit_schema.get("default") is None
     assert "maximum" not in str(limit_schema)
+
+
+def chase_upload(*rows: tuple[str, str, str]) -> dict:
+    lines = ["Transaction Date,Post Date,Description,Category,Type,Amount,Memo"]
+    lines += [f"{day},{day},{description},Shopping,Sale,{amount}," for day, description, amount in rows]
+    body = ("\n".join(lines) + "\n").encode()
+    return {"file": ("Chase3403_Activity_20260726.csv", body, "text/csv")}
+
+
+def test_import_holds_suspects_and_accepts_repeated_accept_hashes_fields():
+    client = make_client()
+    first = client.post(
+        "/imports",
+        files=chase_upload(
+            ("07/10/2026", "HANNAFORD", "-34.50"),
+            ("07/12/2026", "SHELL", "-40.00"),
+            ("07/15/2026", "NETFLIX", "-15.49"),
+        ),
+    )
+    assert first.json()["rows_held_as_suspected_duplicate"] == 0
+    assert first.json()["suspected_duplicates"] == []
+
+    new_rows = (
+        ("07/11/2026", "HANNAFORD #8354", "-34.50"),
+        ("07/14/2026", "SHELL OIL", "-40.00"),
+        ("07/15/2026", "NETFLIX.COM", "-15.49"),
+    )
+    held = client.post("/imports", files=chase_upload(*new_rows)).json()
+
+    assert held["rows_held_as_suspected_duplicate"] == 3
+    hannaford = next(s for s in held["suspected_duplicates"] if s["description"] == "HANNAFORD #8354")
+    assert set(hannaford) == {
+        "row_hash", "account_name", "date", "description", "amount_cents",
+        "existing_id", "existing_date", "existing_description",
+    }
+    assert hannaford["date"] == "2026-07-11"
+    assert hannaford["existing_date"] == "2026-07-10"
+    assert hannaford["existing_description"] == "HANNAFORD"
+
+    accept = [s["row_hash"] for s in held["suspected_duplicates"] if s["description"] != "SHELL OIL"]
+    resp = client.post("/imports", files=chase_upload(*new_rows), data={"accept_hashes": accept})
+
+    assert resp.status_code == 200
+    assert resp.json()["rows_inserted"] == 2
+    assert [s["description"] for s in resp.json()["suspected_duplicates"]] == ["SHELL OIL"]

@@ -36,11 +36,24 @@ class TransactionUpdate(BaseModel):
     note: str | None = None
 
 
+class SuspectedDuplicateOut(BaseModel):
+    row_hash: str
+    account_name: str
+    date: date
+    description: str
+    amount_cents: int
+    existing_id: int
+    existing_date: date
+    existing_description: str
+
+
 class ImportSummaryOut(BaseModel):
     filename: str
     rows_seen: int
     rows_inserted: int
     rows_skipped_as_duplicate: int
+    rows_held_as_suspected_duplicate: int
+    suspected_duplicates: list[SuspectedDuplicateOut]
 
 
 class CategoryOut(BaseModel):
