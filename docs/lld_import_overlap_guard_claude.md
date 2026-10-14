@@ -1,6 +1,6 @@
 # LLD: Import overlap guard - hold likely cross-format duplicates
 
-Status: DRAFT 2026-10-14. Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Ready for phase planning. Phase 1 (pairing function, `backend/app/imports/overlap.py`) built 2026-10-14.
+Status: DRAFT 2026-10-14. Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Ready for phase planning. Phase 1 (pairing function, `backend/app/imports/overlap.py`) built 2026-10-14. Phase 2 (pipeline + API wiring, plus the status line pulled forward from Phase 3; plan `docs/plan_import_overlap_guard_phase2_claude.md`) built and live-verified on a DB copy 2026-10-14. Phase 3 (accept panel) not started.
 
 ## Problem
 
@@ -147,6 +147,13 @@ hashes are ignored (e.g. a stale browser tab). Nothing is stored server-side bet
   `suspected_duplicates: list[SuspectedDuplicate]`, where each entry carries
   `row_hash, account_name, date, description, amount_cents` and the matched
   `existing_id, existing_date, existing_description`.
+- Phase 2 decisions (2026-10-14): `suspected_duplicates` is sorted by
+  `(account_name, date, description, amount_cents, row_hash)` - deterministic, independent of file
+  order. Exact re-imports are found inside the padded window query rather than with a separate
+  `IN (...)` lookup: a matching hash means the same account and date, so it is always in the window.
+  Rows inserted earlier in the same call can never become candidates, by two mechanisms: the window
+  is loaded once per account before inserting, and the pool drops every existing row whose hash is
+  among this file's hashes.
 - `rows_skipped_as_duplicate` keeps its meaning (exact hash matches only), but is counted
   explicitly (pre-lookup hash matches, plus any insert whose rowcount is 0, e.g. a double-submit)
   instead of today's `len(rows) - rows_inserted` (`pipeline.py:103`), which would swallow held rows.
@@ -161,7 +168,9 @@ Merchant/category rule application after insert is unchanged.
 
 `frontend/src/App.tsx` upload flow:
 
-- Status line becomes `file.csv: 40 new, 0 already imported, 15 held as possible duplicates`.
+- Status line becomes `file.csv: 40 new, 0 already imported, 15 held as possible duplicates`
+  (built in Phase 2 as `formatImportStatus` in `format.ts`, so a held row is never invisible while
+  the panel is still unbuilt; unchanged wording when nothing is held).
 - When `rows_held_as_suspected_duplicate > 0`, show a panel under the upload control: one row per
   held transaction, new vs existing side by side (date, description, amount), each with an
   unchecked "import anyway" checkbox, plus **Import selected** and **Dismiss** buttons.
@@ -294,17 +303,38 @@ The rendered panel itself is verified live.
 On a **copy** of `finance.db` (backend started with `DATABASE_PATH` pointing at the copy, so the real
 DB is never touched):
 
-1. Copy the current (cleaned) DB and re-import the real 2026-10-14 native 9837 and Savings files
-   through the UI. The rows we kept hash-match and are skipped; the 17 rows we deleted by hand are
-   no longer in the DB, so they are exactly what the guard must hold. Expect: 0 new, N skipped,
-   17 held - each paired with the aggregator row we kept for it (ids 401-417, 562, 563).
-2. Accept one held row via the panel; confirm by raw SQL it is the only new row.
-3. Re-import the same file; expect 0 new and 16 held (the accepted row now hash-matches).
-4. Repeat step 1 for the 2026-08-05 file `data/ExportData_BOA_1962_July2026.csv`: expect its 24
+1. Copy the current (cleaned) DB and re-import the real files that produced the 2026-10-14
+   duplicates through the API: `ExportData_BOA_July2026_9837.csv` (15 Cash Rewards rows) and
+   `ExportData_BOA_3938_Oct142026.csv` (2 Savings rows). The rows we kept hash-match and are
+   skipped; the rows we deleted by hand are no longer in the DB, so they are exactly what the guard
+   must hold, each paired with the aggregator row kept for it: Cash Rewards ids 401-408, 410-415
+   and 417; Savings 562, 563.
+2. Accept one held row; confirm by raw SQL it is the only new row.
+3. Re-import the same 9837 file; expect 0 new and 14 held (the accepted row now hash-matches).
+4. Re-import the 2026-08-05 file `data/ExportData_BOA_1962_July2026.csv`: expect its 24
    Jul 1-23 rows held.
 
-The 2026-10-14 files are in `data/` (`ExportData_BOA_Aug2026_9837.csv`,
-`ExportData_BOA_3938_Oct142026.csv`, and others).
+Corrected 2026-10-14 (Phase 2 planning and live run): an earlier version of this section named
+`ExportData_BOA_Aug2026_9837.csv` (it covers Jul 28 - Aug 24 and never contained the duplicates,
+so re-importing it correctly skips all 32 rows), listed partners as "401-417" (19 ids for 17
+rows; 409 and 416 never had a deleted duplicate), and gave step 3 as "16 held" by counting both
+files together.
+
+### Live result (2026-10-14, Phase 2)
+
+Backend on port 8001 with `DATABASE_PATH` pointing at a copy of `finance.db`; the real DB was
+untouched (1160 rows before and after). The oracle was built first, with raw SQL only: rows in
+`finance.db.bak-2026-10-14-pre-dedupe` missing from the current DB (41), each with the kept rows of
+the same account and amount within 3 days. One had two candidates (backup 937, -$100.00 Jul 1:
+483 on Jul 1, 487 on Jun 29); resolved by hand to 483 (smallest gap).
+
+| Step | File | Result | Matches oracle |
+|---|---|---|---|
+| 1 | `ExportData_BOA_July2026_9837.csv` | seen 17: 0 new, 2 skipped, 15 held | all 15 rows and partners |
+| 1 | `ExportData_BOA_3938_Oct142026.csv` | seen 12: 0 new, 10 skipped, 2 held | both (562, 563) |
+| 2 | July 9837, accepting IKEA -$127.35 | 1 new, 2 skipped, 14 held | SQL: count 1160 -> 1161, the new row's hash is the accepted one |
+| 3 | July 9837 again | 0 new, 3 skipped, 14 held | accepted row now skips |
+| 4 | `ExportData_BOA_1962_July2026.csv` | seen 34: 0 new, 10 skipped, 24 held | all 24 rows and partners (937 -> 483) |
 
 ## Review log
 

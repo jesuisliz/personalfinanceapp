@@ -869,7 +869,7 @@ Expected from the planning check: 41 rows; Cash Rewards partners {401-408, 410-4
 - [ ] **Step 3: Re-import the 2026-10-14 files**
 
 ```bash
-curl -s -F "file=@data/ExportData_BOA_Aug2026_9837.csv" localhost:8001/imports
+curl -s -F "file=@data/ExportData_BOA_July2026_9837.csv" localhost:8001/imports  # corrected at run time: the Aug file (Jul 28 - Aug 24) never held these rows
 curl -s -F "file=@data/ExportData_BOA_3938_Oct142026.csv" localhost:8001/imports
 ```
 
