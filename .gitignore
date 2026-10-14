@@ -1,6 +1,7 @@
 # Real financial data — never commit (see docs/PROJECT_CONTEXT.md Privacy section)
 data/
 backend/*.db
+backend/*.db.bak*
 backend/.env
 /.env
 
