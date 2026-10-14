@@ -97,6 +97,13 @@ Maps a filename pattern to one or more account definitions. Matching is "pattern
       institution: "Chase"
       account_type: "credit_card"
 
+- match: "Chase0699"
+  parser: chase
+  accounts:
+    - name: "Chase United (...0699)"
+      institution: "Chase"
+      account_type: "credit_card"
+
 - match: "ExportData_BOA_1962"
   parser: boa_native_bank
   accounts:
@@ -207,10 +214,12 @@ Source columns: `Transaction Date, Post Date, Description, Category, Type, Amoun
 | `posted_date` | parse `Post Date` as `MM/DD/YYYY` |
 | `description` | `Description`, HTML-unescape (`&amp;` → `&` — seen in sample: `BARNES &amp; NOBLE`) |
 | `amount_cents` | `Amount` is already signed (negative = spend); parse as Decimal, multiply by 100, round to int. No sign flip needed. |
-| `raw_category` | `Category`, as-is |
+| `raw_category` | `Category`, as-is; if blank and `Type` is `Payment`, synthesized as `"Payment"` (Chase leaves Category blank on payments) |
 | `memo` | `Memo`, empty string → `None` |
 
-`Type` column (`Sale`, `Adjustment`, etc.) is not currently used for anything beyond being ignored — no transaction is dropped based on it. Revisit if a `Type` value implies something the amount sign doesn't already capture.
+`Type` column (`Sale`, `Adjustment`, `Fee`, `Payment`, etc.) is used only for that blank-category Payment case — no transaction is dropped and no sign is changed based on it. Revisit if a `Type` value implies something the amount sign doesn't already capture.
+
+**Chase United (...0699), onboarded 2026-10-14:** a third Chase card, same column layout as 3403/5947, so it reuses this parser with only a new `accounts.yaml` entry. Its first file (`Chase0699_Activity_20261014.csv`, 28 rows, 2026-08-26 to 2026-09-25) includes `Adjustment`-type credits (`Statement Credit Bonus` +$400.00, `Offer:Hannaford` +$5.00), as Sapphire 3403 already did (`ANNUAL HOTEL CREDIT`); the `Amount` sign is used as-is, now pinned by `test_chase_adjustment_credits_stay_positive_with_raw_category`.
 
 ### 4.2 Bank of America parser (`boa.py`)
 

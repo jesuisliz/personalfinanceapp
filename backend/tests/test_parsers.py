@@ -9,6 +9,7 @@ from app.imports.boa import BoaParser
 from app.imports.boa_native_bank import BoaNativeBankParser
 from app.imports.boa_native_card import BoaNativeCardParser
 from app.imports.chase import ChaseParser
+from app.imports.registry import match
 from app.imports.us_bank import UsBankParser
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -184,3 +185,26 @@ def test_compute_row_hashes_is_stable_across_reimport_of_same_file():
     first_import = compute_row_hashes(account_id=1, rows=rows)
     second_import = compute_row_hashes(account_id=1, rows=rows)
     assert first_import == second_import
+
+
+def test_chase_0699_filename_routes_to_chase_parser_and_its_own_account():
+    entry = match("Chase0699_Activity_20261014.csv")
+    assert entry.parser == "chase"
+    assert [a.name for a in entry.accounts] == ["Chase United (...0699)"]
+    # A non-Chase filename that merely contains "0699" must not be captured by this entry.
+    assert match("ExportData_BOA_Sept2026_0699.csv").parser != "chase"
+
+
+def test_chase_fee_and_adjustment_rows_keep_source_sign_and_raw_category():
+    # The offer-reversal row is synthetic (no negative Adjustment seen in real data
+    # yet); it guards against a parser that forces Adjustment rows positive.
+    csv_bytes = (
+        "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n"
+        "08/26/2026,08/28/2026,Statement Credit Bonus,Fees & Adjustments,Adjustment,400.00,\n"
+        "09/14/2026,09/17/2026,Offer:Hannaford,Fees & Adjustments,Adjustment,5.00,\n"
+        "09/20/2026,09/21/2026,Offer reversal:Hannaford,Fees & Adjustments,Adjustment,-5.00,\n"
+        "01/01/2026,01/01/2026,ANNUAL MEMBERSHIP FEE,Fees & Adjustments,Fee,-95.00,\n"
+    ).encode("utf-8")
+    rows = ChaseParser().parse(csv_bytes)
+    assert [r.amount_cents for r in rows] == [40000, 500, -500, -9500]
+    assert {r.raw_category for r in rows} == {"Fees & Adjustments"}

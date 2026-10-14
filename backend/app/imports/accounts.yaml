@@ -12,6 +12,13 @@
       institution: "Chase"
       account_type: "credit_card"
 
+- match: "Chase0699"
+  parser: chase
+  accounts:
+    - name: "Chase United (...0699)"
+      institution: "Chase"
+      account_type: "credit_card"
+
 - match: "ExportData_BOA_1962"
   parser: boa_native_bank
   accounts:

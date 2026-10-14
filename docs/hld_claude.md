@@ -66,11 +66,11 @@ The AI layer never sits between the database and the numbers shown to the user �
 
 ### 4.1 Known source formats
 
-Five sample statements currently in `data/`, each structurally different:
+Each statement format seen in `data/` so far (several accounts can share one format, e.g. three Chase cards):
 
 | Source | Key columns | Sign convention |
 |---|---|---|
-| Chase (checking/credit, e.g. `Chase3403`, `Chase5947`) | `Transaction Date, Post Date, Description, Category, Type, Amount, Memo` | negative = spend |
+| Chase (checking/credit, e.g. `Chase3403`, `Chase5947`, `Chase0699`) | `Transaction Date, Post Date, Description, Category, Type, Amount, Memo` | negative = spend |
 | Bank of America — aggregator export (`ExportData_BOA.csv`) | `Status, Date, Original Description, Split Type, Category, Currency, Amount, User Description, Memo, Classification, Account Name, Simple Description` (UTF-8 BOM) | negative = spend |
 | Bank of America — native checking/savings export (e.g. `ExportData_BOA_1962_6mos.csv`) | 5-line summary block, then `Date, Description, Amount, Running Bal.`; no BOM, no Account Name column (file is already scoped to one account) | negative = spend |
 | Bank of America — native credit card export (e.g. `ExportData_BOA_January2026_9837.csv`) | `Posted Date, Reference Number, Payee, Address, Amount` | negative = spend |
