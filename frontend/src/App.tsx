@@ -14,6 +14,7 @@ import {
   type TransferMatch,
 } from "./api";
 import { formatAmount, transactionsToCsv } from "./format";
+import { sortTransactionsByDate, type SortDirection } from "./sort";
 import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
@@ -24,6 +25,7 @@ import {
   IconBarChart,
   IconCalendar,
   IconCheck,
+  IconChevronDown,
   IconCompass,
   IconDownload,
   IconInfo,
@@ -80,6 +82,7 @@ export default function App() {
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
   const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
+  const [dateSortDirection, setDateSortDirection] = useState<SortDirection>("desc");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
@@ -198,7 +201,7 @@ export default function App() {
     minAmount.trim() !== "" ||
     maxAmount.trim() !== "" ||
     uncategorizedOnly;
-  const visibleTransactions = allTransactions
+  const filteredTransactions = allTransactions
     .filter((t) => selectedAccountId === null || t.account_id === selectedAccountId)
     .filter((t) => !uncategorizedOnly || t.category_id === null)
     .filter((t) => selectedCategoryId === null || t.category_id === selectedCategoryId)
@@ -208,6 +211,7 @@ export default function App() {
     )
     .filter((t) => minAmountCents === null || Number.isNaN(minAmountCents) || t.amount_cents >= minAmountCents)
     .filter((t) => maxAmountCents === null || Number.isNaN(maxAmountCents) || t.amount_cents <= maxAmountCents);
+  const visibleTransactions = sortTransactionsByDate(filteredTransactions, dateSortDirection);
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -440,7 +444,20 @@ export default function App() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left border-b border-hairline bg-surface-2 text-ink-secondary">
-                      <th className="p-2 font-medium">Date</th>
+                      <th
+                        className="p-2 font-medium"
+                        aria-sort={dateSortDirection === "asc" ? "ascending" : "descending"}
+                      >
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:text-ink"
+                          title={dateSortDirection === "asc" ? "Oldest first (click for newest first)" : "Newest first (click for oldest first)"}
+                          onClick={() => setDateSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
+                        >
+                          Date
+                          <IconChevronDown className={dateSortDirection === "asc" ? "rotate-180" : ""} />
+                        </button>
+                      </th>
                       <th className="p-2 font-medium">Account</th>
                       <th className="p-2 font-medium">Description</th>
                       <th className="p-2 font-medium">Category</th>

@@ -1,6 +1,6 @@
 # LLD: Transactions tab - sort by date
 
-Status: DRAFT, awaiting approval (2026-10-14)
+Status: IMPLEMENTED and verified (2026-10-14). Approved date-only, with the helper in `sort.ts`.
 
 ## Request
 
@@ -49,7 +49,7 @@ Small. Roughly:
 | Change | File |
 |---|---|
 | Sort state, comparator, clickable header | `frontend/src/App.tsx` |
-| Pure `sortTransactionsByDate` helper (testable) | `frontend/src/format.ts` or new `sort.ts` |
+| Pure `sortTransactionsByDate` helper (testable) | new `frontend/src/sort.ts` |
 
 ## Tests
 
@@ -58,3 +58,17 @@ Small. Roughly:
 - Live check: toggle to oldest
   first and confirm the first row is 2025-12-30 (matches `SELECT MIN(date)`); export CSV in asc
   order and confirm row count and order.
+
+## Verification (2026-10-14)
+
+- `frontend/src/sort.test.ts`: 3 tests. The fixture's ids deliberately don't follow date order (Codex
+  review found the first fixture let an id-only sort pass every test); confirmed an id-only mutant now
+  fails 2 of 3. Full frontend suite 8/8, tsc and oxlint clean.
+- Independent oracle (raw SQL on `finance.db`, `ORDER BY date, id`): oldest ids 348 (2025-12-30),
+  347, 351 (both 2025-12-31); newest 1030 (2026-10-12), 970, 969 (both 2026-10-10).
+- Live in the running app: default newest first showed exactly the 1030/970/969 rows by date+amount;
+  after clicking the header, 348/347/351 in that order, `aria-sort` flipped, all 1044 rows present.
+- CSV export in oldest-first order (blob captured in-page, no file downloaded): 1044 data rows, first
+  row 2025-12-30, last row 2026-10-12.
+- Merchant filter "grab" kept ascending order (16 rows); "Clear filters" restored 1044 rows with the
+  sort still ascending.
