@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
+from app.imports import pipeline
 from app.imports.pipeline import SuspectedDuplicate, import_file
 from app.models import Account, Category, MerchantRule, Transaction
 
@@ -318,3 +319,64 @@ def test_accepted_row_gets_its_category_from_rules(session):
     )
 
     assert txn(session, "HANNAFORD #8354", -3450).category_id == groceries.id
+
+
+# Close-out review (Opus I1): an exact re-import must not take a partner a real duplicate needs
+def test_reimported_row_never_takes_a_partner_from_a_real_duplicate(session):
+    import_file(session, CHASE_FILE, chase_csv(("07/10/2026", "NAT R", "-10.00")))
+    held = import_file(session, CHASE_FILE, chase_csv(("07/11/2026", "AGG X", "-10.00")))
+    import_file(
+        session, CHASE_FILE, chase_csv(("07/11/2026", "AGG X", "-10.00")), accept_hashes=hashes_for(held, "AGG X")
+    )
+
+    summary = import_file(
+        session,
+        CHASE_FILE,
+        chase_csv(("07/10/2026", "NAT R", "-10.00"), ("07/13/2026", "NAT D", "-10.00")),
+    )
+
+    assert_counts(summary, inserted=0, skipped=1, held=1)
+    assert summary.suspected_duplicates[0].existing_id == txn(session, "AGG X", -1000).id
+
+
+# Close-out review (Opus I2): accepting one row of a cluster keeps the other held row's partner
+def test_accepting_one_row_keeps_the_remaining_held_partner(session):
+    import_file(session, CHASE_FILE, chase_csv(("07/10/2026", "E1", "-10.00"), ("07/12/2026", "E2", "-10.00")))
+    new = chase_csv(("07/10/2026", "A", "-10.00"), ("07/11/2026", "B", "-10.00"))
+    first = import_file(session, CHASE_FILE, new)
+    assert_counts(first, inserted=0, skipped=0, held=2)
+    b_partner = next(s.existing_id for s in first.suspected_duplicates if s.description == "B")
+    assert b_partner == txn(session, "E2", -1000).id
+
+    second = import_file(session, CHASE_FILE, new, accept_hashes=hashes_for(first, "A"))
+
+    assert_counts(second, inserted=1, skipped=0, held=1)
+    assert [(s.description, s.existing_id) for s in second.suspected_duplicates] == [("B", b_partner)]
+
+
+# Close-out review (Codex): a retry that mixes a stale hash with a new one still inserts the new one
+def test_accept_set_mixing_stale_and_new_hashes_inserts_the_new_one(session):
+    first = hold_three(session)
+    import_file(session, CHASE_FILE, chase_csv(*NEW_THREE), accept_hashes=hashes_for(first, "HANNAFORD #8354"))
+
+    summary = import_file(
+        session,
+        CHASE_FILE,
+        chase_csv(*NEW_THREE),
+        accept_hashes=hashes_for(first, "HANNAFORD #8354", "NETFLIX.COM"),
+    )
+
+    assert_counts(summary, inserted=1, skipped=1, held=1)
+    assert [s.description for s in summary.suspected_duplicates] == ["SHELL OIL"]
+
+
+# Close-out review (Opus M-a): an insert that loses a race to another import counts as skipped
+def test_insert_that_loses_a_race_counts_as_skipped(session, monkeypatch):
+    csv = chase_csv(*EXISTING_THREE)
+    import_file(session, CHASE_FILE, csv)
+    # As if another import committed these rows after this call read its window.
+    monkeypatch.setattr(pipeline, "load_nearby_transactions", lambda *args: [])
+
+    summary = import_file(session, CHASE_FILE, csv)
+
+    assert_counts(summary, inserted=0, skipped=3, held=0)

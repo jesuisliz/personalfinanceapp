@@ -57,20 +57,20 @@ describe("transactionsToCsv", () => {
 describe("formatImportStatus", () => {
   const base = {
     filename: "x.csv",
-    rows_seen: 55,
+    rows_seen: 50,
     rows_inserted: 40,
-    rows_skipped_as_duplicate: 0,
-    rows_held_as_suspected_duplicate: 15,
+    rows_skipped_as_duplicate: 3,
+    rows_held_as_suspected_duplicate: 7,
     suspected_duplicates: [],
   };
 
   it("reports held rows when there are any", () => {
-    expect(formatImportStatus(base)).toBe("x.csv: 40 new, 0 already imported, 15 held as possible duplicates");
+    expect(formatImportStatus(base)).toBe("x.csv: 40 new, 3 already imported, 7 held as possible duplicates");
   });
 
   it("keeps today's wording when nothing is held", () => {
-    expect(formatImportStatus({ ...base, rows_seen: 40, rows_held_as_suspected_duplicate: 0 })).toBe(
-      "x.csv: 40 new, 0 already imported"
+    expect(formatImportStatus({ ...base, rows_seen: 43, rows_held_as_suspected_duplicate: 0 })).toBe(
+      "x.csv: 40 new, 3 already imported"
     );
   });
 });

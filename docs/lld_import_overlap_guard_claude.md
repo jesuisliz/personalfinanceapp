@@ -270,7 +270,9 @@ Through `import_file` against a test DB:
     widely separated date ranges; for one account an existing row 2 days *before* its earliest file
     date, for another an existing row 2 days *after* its latest -> both matching new rows held, and
     an existing row of a third account that falls inside the *file-wide* range but outside its own
-    account's padded range does not cause a hold.
+    account's padded range does not cause a hold. (Close-out review note: this last clause cannot fail - pairing
+    re-checks account and date, so an over-wide query is harmless. What test 10 really pins is that
+    the query is not too narrow: the inclusive 3-day edges on both sides, per account.)
 11. Cross-format incident fixture (modelled on 2026-10-14: aggregator-style rows first, then
     native-style rows including 2-day-shifted ones) -> every overlapping row held with the expected
     `existing_id`, the non-overlapping tail inserted; each suspect's full serialized object
@@ -337,6 +339,16 @@ the same account and amount within 3 days. One had two candidates (backup 937, -
 | 4 | `ExportData_BOA_1962_July2026.csv` | seen 34: 0 new, 10 skipped, 24 held | all 24 rows and partners (937 -> 483) |
 
 ## Review log
+
+Phase 2 close-out review, 2026-10-14 (Opus subagent + Codex; both ran the backend suite, 227 passed;
+Opus ran vitest, 14 passed; Codex's sandbox could not create Vite's temp dir). No correctness defect.
+Test gaps closed, each with a mutant that survived before and is killed by exactly the new test:
+re-imported rows joining pairing and taking a real duplicate's partner (Opus I1); accepted rows
+dropped before pairing, changing the remaining held row's partner (Opus I2); insert rowcount 0 not
+counted as skipped, tested via a monkeypatched window (Opus); an accept set mixing a stale and a
+new hash (Codex). API test now checks suspect field values; status-line fixtures use non-zero
+counts. Deferred: uploadCsv(file, acceptHashes) and test 16 (Phase 3 scope); Travel Rewards not in
+the multi-account fixture; account_name part of the suspect sort key untested.
 
 Opus, 2026-10-14 (read-only, against the code):
 

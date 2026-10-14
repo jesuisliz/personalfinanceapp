@@ -41,7 +41,7 @@ Input classes the spec implies that tests 7-15 don't pin, most likely to bite fi
 4. **Accepting a hash that is not held** (already inserted on an earlier accept, or an exact re-import): no double insert, no error, counts unchanged. -> test R1, Task 2.
 5. **Response shape with nothing held**: `rows_held_as_suspected_duplicate: 0` and `suspected_duplicates: []` are always present, so the frontend can read them unconditionally. -> test 15, Task 3.
 
-The double-submit race (insert `rowcount` 0) is not unit-testable without concurrency; it is a one-line `1 - rowcount` on the existing `on_conflict_do_nothing` path, and Task 1's step 3 calls it out for review.
+The double-submit race (insert `rowcount` 0) was planned as untestable without concurrency (corrected in close-out review: it is tested by monkeypatching `load_nearby_transactions` to return no rows); it is a one-line `1 - rowcount` on the existing `on_conflict_do_nothing` path, and Task 1's step 3 calls it out for review.
 
 ---
 

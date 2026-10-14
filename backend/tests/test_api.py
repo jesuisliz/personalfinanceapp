@@ -468,6 +468,11 @@ def test_import_holds_suspects_and_accepts_repeated_accept_hashes_fields():
     assert hannaford["date"] == "2026-07-11"
     assert hannaford["existing_date"] == "2026-07-10"
     assert hannaford["existing_description"] == "HANNAFORD"
+    existing = next(t for t in client.get("/transactions").json() if t["description"] == "HANNAFORD")
+    assert hannaford["existing_id"] == existing["id"]
+    assert hannaford["account_name"] == "Chase Sapphire (...3403)"
+    assert hannaford["amount_cents"] == -3450
+    assert len(hannaford["row_hash"]) == 64
 
     accept = [s["row_hash"] for s in held["suspected_duplicates"] if s["description"] != "SHELL OIL"]
     resp = client.post("/imports", files=chase_upload(*new_rows), data={"accept_hashes": accept})
