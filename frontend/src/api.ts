@@ -147,7 +147,6 @@ export async function fetchAccounts(): Promise<Account[]> {
 export async function fetchTransactions(accountId: number | null): Promise<Transaction[]> {
   const url = new URL(`${API_BASE}/transactions`);
   if (accountId !== null) url.searchParams.set("account_id", String(accountId));
-  url.searchParams.set("limit", "1000");
   const res = await fetch(url);
   if (!res.ok) throw new Error("Failed to load transactions");
   return res.json();

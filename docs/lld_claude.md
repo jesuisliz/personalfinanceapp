@@ -338,7 +338,7 @@ import_file(filename, file_bytes):
 |---|---|
 | `POST /imports` | multipart file upload; runs the pipeline; returns `ImportSummary` (filename, counts) |
 | `GET /accounts` | list all accounts |
-| `GET /transactions` | list transactions, filterable by `account_id`, `date_from`, `date_to`; paginated |
+| `GET /transactions` | list transactions newest first (same-day rows by `id` desc), filterable by `account_id`, `date_from`, `date_to`; returns all matching rows unless an optional `limit` (>= 1, no max) is given; `offset` optional |
 
 No update/delete endpoints for transactions in Phase 1 — manual category editing (which implies a `PATCH`) is Phase 2.
 
@@ -411,10 +411,10 @@ The backend is local-only and has exactly one real caller (the Vite dev server o
 
 ### 13.4 Behavior
 
-- Account filter: a native `<select>` populated from `GET /accounts`, defaulting to "All accounts". Selecting one re-fetches `GET /transactions?account_id=<id>`.
+- Account filter: populated from `GET /accounts`, defaulting to "All accounts". Filtering (account and every later filter) is client-side over the full list; the frontend always calls `fetchTransactions(null)`.
 - Transaction table: date, account name (resolved client-side from the accounts list, not repeated per-row from the API), description, category, and amount — amount in red when negative (expense), green when positive (income), formatted via `toLocaleString(..., {style: "currency"})`.
 - CSV upload: a styled `<label>` wrapping a hidden `<input type="file">`; on change, `POST /imports` as multipart form data, show the returned `ImportSummary` inline (`"<filename>: N new, M already imported"`), then re-fetch the transaction list. Import errors (e.g. unmatched filename) surface the backend's error `detail` text directly rather than a generic failure message, consistent with Section 8's "no silent failure" principle.
-- Transaction list is capped at `limit=1000` (the API's max per Section 7) with no pagination UI yet — real data volume as of 2026-08-05 is 934 transactions across 9 accounts, getting close to the cap; revisit pagination sooner rather than later, not just "if that grows past 1000."
+- The frontend loads every transaction (no `limit`). Until 2026-10-14 it requested `limit=1000`, which silently hid the 44 oldest of 1044 rows from the table, filters, month dropdown and CSV export; fixed per `lld_transactions_fetch_cap_fix_claude.md`.
 
 ### 13.5 Verification performed
 
@@ -427,6 +427,6 @@ Not just `npm run build` passing — the actual running app was checked in a rea
 
 ### 13.6 Known limitations
 
-- No pagination UI (Section 13.4) — fine until transaction count exceeds ~1000.
-- No sorting/search beyond the account filter — acceptable for Phase 1; likely to matter more once Phase 3's dashboard exists.
+- No pagination UI (Section 13.4) — all rows are loaded client-side; revisit (virtualization or pagination) only if the table gets slow to render, likely around 10k rows.
+- No column sorting yet (newest first only) — date sort is specced in `lld_transactions_date_sort_claude.md`. Filtering (account, category, month, merchant, amount, uncategorized) was added in Phase 3.
 - No loading/error states beyond plain text — fine for a single local user, would need real UX work before this app is ever multi-user (which CLAUDE.md rules out anyway).

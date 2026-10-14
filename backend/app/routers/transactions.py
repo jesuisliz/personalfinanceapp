@@ -16,10 +16,11 @@ def list_transactions(
     account_id: int | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    limit: int = Query(default=100, le=1000),
+    limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
+    """List transactions newest first (same-day rows by id desc); all matching rows unless `limit` is given."""
     stmt = select(Transaction)
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
@@ -27,7 +28,9 @@ def list_transactions(
         stmt = stmt.where(Transaction.date >= date_from)
     if date_to is not None:
         stmt = stmt.where(Transaction.date <= date_to)
-    stmt = stmt.order_by(Transaction.date.desc()).offset(offset).limit(limit)
+    stmt = stmt.order_by(Transaction.date.desc(), Transaction.id.desc()).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return db.execute(stmt).scalars().all()
 
 
