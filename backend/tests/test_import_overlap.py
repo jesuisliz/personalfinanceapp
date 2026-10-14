@@ -232,3 +232,89 @@ def test_file_order_does_not_change_the_summary(session):
 
     assert_counts(summary, inserted=2, skipped=0, held=5)
     assert summary.suspected_duplicates == expected_incident_suspects(session)
+
+
+EXISTING_THREE = (
+    ("07/10/2026", "HANNAFORD", "-34.50"),
+    ("07/12/2026", "SHELL", "-40.00"),
+    ("07/15/2026", "NETFLIX", "-15.49"),
+)
+NEW_THREE = (
+    ("07/11/2026", "HANNAFORD #8354", "-34.50"),
+    ("07/14/2026", "SHELL OIL", "-40.00"),
+    ("07/15/2026", "NETFLIX.COM", "-15.49"),
+)
+
+
+def hold_three(session):
+    """Import EXISTING_THREE, then NEW_THREE; return the summary that holds all three."""
+    import_file(session, CHASE_FILE, chase_csv(*EXISTING_THREE))
+    summary = import_file(session, CHASE_FILE, chase_csv(*NEW_THREE))
+    assert_counts(summary, inserted=0, skipped=0, held=3)
+    return summary
+
+
+def hashes_for(summary, *descriptions: str) -> frozenset[str]:
+    return frozenset(s.row_hash for s in summary.suspected_duplicates if s.description in descriptions)
+
+
+# Test 12
+def test_accepting_two_of_three_inserts_exactly_those_two(session):
+    first = hold_three(session)
+    shell_partner = next(s.existing_id for s in first.suspected_duplicates if s.description == "SHELL OIL")
+
+    second = import_file(
+        session,
+        CHASE_FILE,
+        chase_csv(*NEW_THREE),
+        accept_hashes=hashes_for(first, "HANNAFORD #8354", "NETFLIX.COM"),
+    )
+
+    assert_counts(second, inserted=2, skipped=0, held=1)
+    assert [(s.description, s.existing_id) for s in second.suspected_duplicates] == [("SHELL OIL", shell_partner)]
+    descriptions = {t.description for t in session.query(Transaction)}
+    assert descriptions == {"HANNAFORD", "SHELL", "NETFLIX", "HANNAFORD #8354", "NETFLIX.COM"}
+
+    third = import_file(session, CHASE_FILE, chase_csv(*NEW_THREE))
+    assert_counts(third, inserted=0, skipped=2, held=1)
+    assert third.suspected_duplicates == second.suspected_duplicates
+
+
+# Test 13
+def test_unknown_accept_hash_is_ignored(session):
+    first = hold_three(session)
+
+    second = import_file(
+        session, CHASE_FILE, chase_csv(*NEW_THREE), accept_hashes=frozenset({"not-a-real-hash"})
+    )
+
+    assert_counts(second, inserted=0, skipped=0, held=3)
+    assert second.suspected_duplicates == first.suspected_duplicates
+
+
+# R1 (Review Focus 4)
+def test_accepting_an_already_inserted_hash_changes_nothing(session):
+    first = hold_three(session)
+    accepted = hashes_for(first, "HANNAFORD #8354")
+    import_file(session, CHASE_FILE, chase_csv(*NEW_THREE), accept_hashes=accepted)
+
+    again = import_file(session, CHASE_FILE, chase_csv(*NEW_THREE), accept_hashes=accepted)
+
+    assert_counts(again, inserted=0, skipped=1, held=2)
+    assert session.query(Transaction).count() == 4
+
+
+# Test 14
+def test_accepted_row_gets_its_category_from_rules(session):
+    groceries = Category(name="Groceries")
+    session.add(groceries)
+    session.flush()
+    session.add(MerchantRule(match_pattern="HANNAFORD #8354", clean_name="Hannaford", category_id=groceries.id))
+    session.commit()
+    first = hold_three(session)
+
+    import_file(
+        session, CHASE_FILE, chase_csv(*NEW_THREE), accept_hashes=hashes_for(first, "HANNAFORD #8354")
+    )
+
+    assert txn(session, "HANNAFORD #8354", -3450).category_id == groceries.id
