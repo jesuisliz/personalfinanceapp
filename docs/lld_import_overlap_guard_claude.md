@@ -1,6 +1,6 @@
 # LLD: Import overlap guard - hold likely cross-format duplicates
 
-Status: DRAFT 2026-10-14. Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Ready for phase planning. Phase 1 (pairing function, `backend/app/imports/overlap.py`) built 2026-10-14. Phase 2 (pipeline + API wiring, plus the status line pulled forward from Phase 3; plan `docs/plan_import_overlap_guard_phase2_claude.md`) built and live-verified on a DB copy 2026-10-14. Phase 3 (accept panel) not started.
+Status: DRAFT 2026-10-14. Direction (hold, 3-day window, account+amount only) approved by user 2026-10-14. Opus review 2026-10-14: findings verified and applied, one sub-claim rejected (see Review log). Codex review 2026-10-14: findings verified and applied; pairing algorithm (High) resolved by user choosing cluster search, 2026-10-14. Ready for phase planning. Phase 1 (pairing function, `backend/app/imports/overlap.py`) built 2026-10-14. Phase 2 (pipeline + API wiring, plus the status line pulled forward from Phase 3; plan `docs/plan_import_overlap_guard_phase2_claude.md`) built and live-verified on a DB copy 2026-10-14. Phase 3 (accept panel; plan `docs/plan_import_overlap_guard_phase3_claude.md`) built and live-verified in the browser on a DB copy 2026-10-14.
 
 ## Problem
 
@@ -186,6 +186,23 @@ Merchant/category rule application after insert is unchanged.
 
 `frontend/src/api.ts`: `uploadCsv(file, acceptHashes?)` and the extended `ImportSummary` type.
 
+Phase 3 decisions (2026-10-14; built as `frontend/src/heldImport.ts` reducer + `HeldImportPanel.tsx`):
+
+1. **Late retry response.** The Import CSV button is not part of the panel, so a new upload can start
+   while an "Import selected" request is in flight. The reducer applies `retrySucceeded` /
+   `retryFailed` only when the panel still shows the same `File` object (identity, not name), so a
+   late response can't reopen a stale panel. The status line is not guarded the same way: a late
+   retry's text can still overwrite the newer upload's message (see 3).
+2. **Selection after a successful retry resets to empty.** Every selected hash was just inserted.
+3. **Not fixed: overlapping fresh uploads** (pick file A, then B before A returns) can still show
+   A's status line or panel last. The status line has had this race since before the guard.
+4. **Live walkthrough served the DB copy on port 8000**, because `API_BASE` is hard-coded to 8000
+   and CORS allows only `localhost:5173`. Making the API base configurable was rejected as new
+   config for a one-off check.
+5. **The "Already imported" side shows the existing row's raw `description`** (what Phase 2's API
+   returns), not its cleaned name: e.g. `Online Transfer From Chk 1962 Confirmation# XX2131` rather
+   than `Transfer - Checking 1962`. Kept: raw text is the better evidence when judging a duplicate.
+
 ### Out of scope
 
 - The second proposal from 2026-10-14 (offer a merchant rule when a category is edited by hand) -
@@ -337,6 +354,26 @@ the same account and amount within 3 days. One had two candidates (backup 937, -
 | 2 | July 9837, accepting IKEA -$127.35 | 1 new, 2 skipped, 14 held | SQL: count 1160 -> 1161, the new row's hash is the accepted one |
 | 3 | July 9837 again | 0 new, 3 skipped, 14 held | accepted row now skips |
 | 4 | `ExportData_BOA_1962_July2026.csv` | seen 34: 0 new, 10 skipped, 24 held | all 24 rows and partners (937 -> 483) |
+
+### Live result (2026-10-14, Phase 3, browser)
+
+Backend on port 8000 with `DATABASE_PATH` pointing at a copy of `finance.db`; Vite on 5173;
+claude-in-chrome. Oracle first: raw SQL on the copy (1160 rows; partners 401-408, 410-415, 417, 483,
+562, 563 present). The real DB was 1160 rows before and after.
+
+| Step | Action | UI | Independent check |
+|---|---|---|---|
+| 1 | Import `ExportData_BOA_July2026_9837.csv` | `0 new, 2 already imported, 15 held`; 15 rows, none checked, Import selected (0) disabled | all 15 "already imported" sides match partners 401-408, 410-415, 417 on date, description, amount |
+| 2 | Check IKEA -$127.35, Import selected (1) | every checkbox and button disabled during the request (DOM observer); then `1 new, 2 already imported, 14 held`, none checked | SQL: copy 1160 -> 1161, new row id 1202 is IKEA STOUGHTON -$127.35 2026-07-20; real DB still 1160 |
+| 3 | Dismiss | panel closes | SQL: copy still 1161 |
+| 4 | Import `ExportData_BOA_3938_Oct142026.csv` | `0 new, 10 already imported, 2 held` ($0.35 Jul 15, $250.00 Jul 16) | partners 563, 562 |
+| 4b | With that panel open, import `ExportData_BOA_Aug2026_9837.csv` | panel gone in the same render as `Importing...` (DOM observer), stays closed; `0 new, 32 already imported` | matches Phase 2 |
+| 5 | Import `ExportData_BOA_1962_July2026.csv`; check 2 rows, uncheck 1, Import selected (1) | `0 new, 10 already imported, 24 held`; the ambiguous Xoom -$100 pairs with the Jul 1 row (483); after import `1 new, 10 already imported, 23 held` | SQL: copy 1161 -> 1162, new row id 1203 is the checked Xoom (`...454947`) only |
+| 6 | Regression: Detect Transfers, Dashboard, Chat, Planning, back to Transactions | all render; both cards still shown after tab switches; table 1162 rows; no console errors since tracking began (mid-session) | - |
+
+Export CSV was not clicked (browser download; code untouched). Three browser-tool calls timed out
+(two multi-second scripts, one zoom); the page itself was responsive each time, confirmed by the
+next screenshot.
 
 ## Review log
 
