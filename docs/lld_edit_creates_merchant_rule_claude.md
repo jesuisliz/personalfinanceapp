@@ -4,7 +4,7 @@ Status: v3 approved. Phase 1 (backend) built and live-verified 2026-10-15
 (commits c7a6164, dcfb832, 3ca2280, 7a63e3c, i.e. 7b3e23f..7a63e3c; see section 11).
 Close-out review and its fix pass done (11.4, 11.5; commit 78ff014). Phase 2
 (frontend panel) built and live-verified 2026-10-15 (commits 1466f1a, 17a019f,
-b442518, a5ff7f1; see section 12). Open: three questions for Liz (12.6).
+b442518, a5ff7f1, plus the 12.6 follow-up; see section 12). No open questions.
 
 ## 1. Context
 
@@ -632,8 +632,6 @@ Fixed (a5ff7f1), each verified against the code first:
 
 ### 12.5 Deferred minors
 
-- Panel status says "Would name N transactions"; section 5 says "N blank
-  transactions". Named rows aren't counted (see 12.6 q3).
 - If categories fail to load, the `Category {id}` fallback name would mark
   every sample row red.
 - The panel's source snapshot doesn't follow a later rename of the same
@@ -641,7 +639,7 @@ Fixed (a5ff7f1), each verified against the code first:
 - `asJsonOrRefusal` parses JSON before checking `ok` (same as `asJson`).
 - Preview doesn't check the category exists (from 11.5; create does).
 
-### 12.6 Open questions for Liz
+### 12.6 Questions for Liz - resolved 2026-10-15 ("go ahead with your recommendation")
 
 1. **Stale previews (Opus D3, Low).** A preview only re-runs when the
    pattern or scope changes. After a transient network error the only retry
@@ -649,10 +647,23 @@ Fixed (a5ff7f1), each verified against the code first:
    Transfers, an upload, a rename) the counts shown can be stale. The server
    still refuses an unsafe save with its message. Options: re-preview after
    `saveFailed` and on each `reload()`, or leave it.
+   **Resolved: leave it.** The server re-checks everything on save and
+   shows its refusal, so a stale count can't cause an unsafe rule; a
+   re-preview on every reload adds requests and state for a Low UX issue.
 2. **Lost rule id (Opus D4, Low; the trade-off in decision 2).** A save
    still in flight when another row is edited creates the rule and reloads
    the table, but the id is discarded, and there is no rules UI to find it.
    Options: show the id in the status line, disable category dropdowns
    while saving, or leave it.
+   **Resolved: every row's category dropdown is disabled while a save is in
+   flight** (`CategoryDropdown` gained a `disabled` prop; App passes
+   `rememberRule?.saving`). The panel can't be replaced mid-save, so the id
+   always reaches the saved view. Live, with the create delayed 10 s in the
+   browser: 55/55 dropdowns disabled and greyed, a click on another row's
+   dropdown opened nothing, then "Rule saved (#77)" and 0/55 disabled; raw
+   SQL on the copy showed the rule and exactly the 1 row its preview named.
+   No unit test: component behavior (section 6), proven live.
 3. **Wording.** Change "Would name N transactions" to "Would name N unnamed
    transactions" to match section 5?
+   **Resolved: changed.** Live: "Would name 46 unnamed transactions..." and
+   the singular "Would name 1 unnamed transaction...".

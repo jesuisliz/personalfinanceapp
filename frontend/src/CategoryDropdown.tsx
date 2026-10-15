@@ -11,10 +11,12 @@ export function CategoryDropdown({
   categories,
   value,
   onChange,
+  disabled = false,
 }: {
   categories: Category[];
   value: number | null;
   onChange: (categoryId: number | null) => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [panelPosition, setPanelPosition] = useState<PanelPosition | null>(null);
@@ -79,8 +81,9 @@ export function CategoryDropdown({
     <div className="relative" ref={rootRef}>
       <button
         type="button"
-        className={`${inputClass} bg-canvas flex items-center gap-2 min-w-[9rem]`}
+        className={`${inputClass} bg-canvas flex items-center gap-2 min-w-[9rem] disabled:opacity-40 disabled:cursor-not-allowed`}
         onClick={toggleOpen}
+        disabled={disabled}
       >
         {selected && (
           <span

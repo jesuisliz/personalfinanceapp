@@ -617,6 +617,7 @@ export default function App() {
                             categories={categories}
                             value={t.category_id}
                             onChange={(categoryId) => handleCategoryChange(t.id, categoryId)}
+                            disabled={rememberRule?.saving ?? false}
                           />
                           {t.category_id && !categoryById.has(t.category_id) && (
                             <span className="text-critical text-xs ml-1">unknown category</span>

@@ -46,7 +46,7 @@ function Status({ state, accountName }: { state: PanelState; accountName: string
   }
   return (
     <p className="text-sm text-ink-secondary">
-      Would name {plural(preview.would_name_count, "transaction")} and categorize {preview.would_categorize_count} of
+      Would name {preview.would_name_count} unnamed transaction{preview.would_name_count === 1 ? "" : "s"} and categorize {preview.would_categorize_count} of
       them.
     </p>
   );
