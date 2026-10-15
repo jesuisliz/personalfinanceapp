@@ -1,6 +1,12 @@
 from datetime import date, datetime
+from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
+
+from app.categories.candidate import normalize_rule_text
+
+# Stripped; blank is a 422. Used for both preview and create so what is previewed is what is stored.
+RuleText = Annotated[str, AfterValidator(normalize_rule_text)]
 
 
 class AccountOut(BaseModel):
@@ -84,10 +90,48 @@ class MerchantRuleOut(BaseModel):
 
 
 class MerchantRuleCreate(BaseModel):
-    match_pattern: str
-    clean_name: str
+    """A new rule. With source_transaction_id it is remembered from a category edit:
+    its scope comes from the source row (this_account_only), never from account_id."""
+
+    match_pattern: RuleText
+    clean_name: RuleText
     category_id: int | None = None
     account_id: int | None = None
+    source_transaction_id: int | None = None
+    this_account_only: bool = False
+
+    @model_validator(mode="after")
+    def check_source_fields(self) -> Self:
+        if self.source_transaction_id is not None:
+            if self.account_id is not None:
+                raise ValueError("account_id is derived from the source transaction; omit it")
+            if self.category_id is None:
+                raise ValueError("category_id is required with source_transaction_id")
+        return self
+
+
+class MerchantRulePreviewRequest(BaseModel):
+    source_transaction_id: int
+    match_pattern: RuleText | None = None  # None: use the suggested pattern
+    category_id: int
+    this_account_only: bool = False
+
+
+class SampleRowOut(BaseModel):
+    id: int
+    date: date
+    description: str
+    category_name: str | None
+
+
+class MerchantRulePreviewOut(BaseModel):
+    match_pattern: str
+    matches_source: bool
+    conflicting_rule: MerchantRuleOut | None
+    would_name_count: int
+    would_categorize_count: int
+    category_mismatch_count: int
+    sample: list[SampleRowOut]
 
 
 class TransferMatchOut(BaseModel):

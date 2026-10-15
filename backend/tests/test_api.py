@@ -4,13 +4,13 @@ from pathlib import Path
 import pytest
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
-from app.models import Account, Transaction
+from app.models import Account, Category, MerchantRule, Transaction
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -480,3 +480,313 @@ def test_import_holds_suspects_and_accepts_repeated_accept_hashes_fields():
     assert resp.status_code == 200
     assert resp.json()["rows_inserted"] == 2
     assert [s["description"] for s in resp.json()["suspected_duplicates"]] == ["SHELL OIL"]
+
+
+# --- Remember a category edit as a merchant rule (docs/lld_edit_creates_merchant_rule_claude.md) ---
+
+DINING, TRAVEL, GROCERIES = 1, 2, 3
+
+
+def make_rule_client():
+    """Two accounts, three categories and three KURA rows: the edited source row
+    (Dining, account 1), a blank sibling on account 1, and a blank row on account 2."""
+    client, Session = make_client_and_sessionmaker()
+    with Session() as session:
+        session.add_all([
+            Account(id=1, name="Card A", institution="Chase", account_type="credit_card"),
+            Account(id=2, name="Card B", institution="Amex", account_type="credit_card"),
+            Category(id=DINING, name="Dining"),
+            Category(id=TRAVEL, name="Travel"),
+            Category(id=GROCERIES, name="Groceries"),
+        ])
+        session.add_all([
+            make_row(1, 1, "SQ *KURA REVOLVING SUSHI", date(2026, 1, 5), category_id=DINING),
+            make_row(2, 1, "SQ *KURA REVOLVING SUSHI #2", date(2026, 1, 4)),
+            make_row(3, 2, "SQ *KURA REVOLVING", date(2026, 1, 3)),
+        ])
+        session.commit()
+    return client, Session
+
+
+def make_row(txn_id, account_id, description, txn_date, category_id=None, clean=None):
+    return Transaction(
+        id=txn_id,
+        account_id=account_id,
+        date=txn_date,
+        description=description,
+        amount_cents=-1000,
+        source_row_hash=f"hash-{txn_id}",
+        category_id=category_id,
+        clean_description=clean,
+    )
+
+
+def add_existing_rule(Session, pattern, category_id, account_id=None) -> int:
+    with Session() as session:
+        rule = MerchantRule(match_pattern=pattern, clean_name="Existing", category_id=category_id, account_id=account_id)
+        session.add(rule)
+        session.commit()
+        return rule.id
+
+
+def rule_count(Session) -> int:
+    with Session() as session:
+        return session.scalar(select(func.count()).select_from(MerchantRule))
+
+
+def get_row(Session, txn_id) -> Transaction:
+    with Session() as session:
+        return session.get(Transaction, txn_id)
+
+
+def preview(client, **overrides):
+    body = {"source_transaction_id": 1, "match_pattern": None, "category_id": DINING, "this_account_only": False}
+    return client.post("/merchant-rules/preview", json={**body, **overrides})
+
+
+def create_from_source(client, **overrides):
+    body = {
+        "match_pattern": "SQ *KURA",
+        "clean_name": "Kura Sushi",
+        "category_id": DINING,
+        "source_transaction_id": 1,
+        "this_account_only": False,
+    }
+    return client.post("/merchant-rules", json={**body, **overrides})
+
+
+def test_rule_preview_null_pattern_uses_suggestion_and_returns_full_response():
+    client, _ = make_rule_client()
+
+    resp = preview(client)
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "match_pattern": "SQ *KURA",
+        "matches_source": True,
+        "conflicting_rule": None,
+        "would_name_count": 3,
+        "would_categorize_count": 2,
+        "category_mismatch_count": 0,
+        "sample": [
+            {"id": 1, "date": "2026-01-05", "description": "SQ *KURA REVOLVING SUSHI", "category_name": "Dining"},
+            {"id": 2, "date": "2026-01-04", "description": "SQ *KURA REVOLVING SUSHI #2", "category_name": None},
+            {"id": 3, "date": "2026-01-03", "description": "SQ *KURA REVOLVING", "category_name": None},
+        ],
+    }
+
+
+def test_rule_preview_padded_pattern_is_evaluated_stripped():
+    client, _ = make_rule_client()
+
+    resp = preview(client, match_pattern="  KURA  ")
+
+    assert resp.json()["match_pattern"] == "KURA"
+
+
+def test_rule_preview_reports_conflicting_rule():
+    client, Session = make_rule_client()
+    rule_id = add_existing_rule(Session, "SQ *KURA REV", GROCERIES)
+
+    resp = preview(client, match_pattern="SQ *KURA")
+
+    assert resp.json()["conflicting_rule"] == {
+        "id": rule_id, "match_pattern": "SQ *KURA REV", "clean_name": "Existing",
+        "category_id": GROCERIES, "account_id": None,
+    }
+
+
+def test_rule_preview_is_read_only():
+    client, Session = make_rule_client()
+
+    resp = preview(client, match_pattern="SQ *KURA")
+
+    assert resp.status_code == 200
+    assert rule_count(Session) == 0
+    with Session() as session:
+        assert session.scalar(select(func.count()).select_from(Transaction)) == 3
+    blank = get_row(Session, 2)
+    assert blank.clean_description is None
+    assert blank.category_id is None
+
+
+def test_rule_preview_unknown_source_returns_404():
+    client, _ = make_rule_client()
+
+    resp = preview(client, source_transaction_id=999)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "source_not_found"
+
+
+def test_rule_preview_source_category_changed_returns_409():
+    client, _ = make_rule_client()
+
+    resp = preview(client, category_id=TRAVEL)
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "source_category_changed"
+
+
+@pytest.mark.parametrize("pattern", ["", "   "])
+def test_rule_preview_blank_pattern_returns_422(pattern):
+    client, _ = make_rule_client()
+
+    assert preview(client, match_pattern=pattern).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"match_pattern": "", "clean_name": "DoorDash"},
+        {"match_pattern": "   ", "clean_name": "DoorDash"},
+        {"match_pattern": "doordash", "clean_name": "  "},
+    ],
+)
+def test_create_rule_without_source_rejects_blank_text(body):
+    client, Session = make_rule_client()
+
+    assert client.post("/merchant-rules", json=body).status_code == 422
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_without_source_stores_stripped_text():
+    client, _ = make_rule_client()
+
+    resp = client.post("/merchant-rules", json={"match_pattern": "  DoorDash  ", "clean_name": " DoorDash "})
+
+    assert resp.status_code == 200
+    assert resp.json()["match_pattern"] == "DoorDash"
+    assert resp.json()["clean_name"] == "DoorDash"
+
+
+def test_create_rule_from_source_rejects_account_id_in_body():
+    client, Session = make_rule_client()
+
+    assert create_from_source(client, account_id=1).status_code == 422
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_from_source_requires_category():
+    client, Session = make_rule_client()
+
+    assert create_from_source(client, category_id=None).status_code == 422
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_from_source_applies_to_all_accounts():
+    client, Session = make_rule_client()
+
+    resp = create_from_source(client)
+
+    assert resp.status_code == 200
+    assert resp.json()["account_id"] is None
+    for txn_id in (2, 3):
+        row = get_row(Session, txn_id)
+        assert row.clean_description == "Kura Sushi"
+        assert row.category_id == DINING
+
+
+def test_create_rule_from_source_this_account_only_stores_source_account():
+    client, Session = make_rule_client()
+
+    resp = create_from_source(client, this_account_only=True)
+
+    assert resp.status_code == 200
+    assert resp.json()["account_id"] == 1
+    assert get_row(Session, 2).clean_description == "Kura Sushi"
+    assert get_row(Session, 3).clean_description is None
+
+
+def test_create_rule_from_unknown_source_returns_404():
+    client, Session = make_rule_client()
+
+    resp = create_from_source(client, source_transaction_id=999)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "source_not_found"
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_source_category_changed_beats_non_matching_pattern():
+    client, Session = make_rule_client()
+
+    resp = create_from_source(client, category_id=TRAVEL, match_pattern="WALMART")
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "source_category_changed"
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_non_matching_pattern_returns_400_even_when_a_rule_owns_the_source():
+    client, Session = make_rule_client()
+    add_existing_rule(Session, "SQ *KURA REV", GROCERIES)
+
+    resp = create_from_source(client, match_pattern="WALMART")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "pattern_not_matching_source"
+    assert rule_count(Session) == 1
+
+
+def test_create_rule_conflict_returns_409_with_rule():
+    client, Session = make_rule_client()
+    rule_id = add_existing_rule(Session, "SQ *KURA REV", GROCERIES)
+
+    resp = create_from_source(client)
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["code"] == "conflict"
+    assert detail["message"]
+    assert detail["rule"] == {
+        "id": rule_id, "match_pattern": "SQ *KURA REV", "clean_name": "Existing",
+        "category_id": GROCERIES, "account_id": None,
+    }
+    assert rule_count(Session) == 1
+
+
+def test_create_rule_conflict_beats_category_mismatch():
+    client, Session = make_rule_client()
+    add_existing_rule(Session, "SQ *KURA REV", GROCERIES)
+    with Session() as session:
+        session.add(make_row(4, 1, "SQ *KURA TRAVEL", date(2026, 1, 1), category_id=TRAVEL))
+        session.commit()
+
+    resp = create_from_source(client)
+
+    assert resp.json()["detail"]["code"] == "conflict"
+
+
+def test_create_rule_category_mismatch_returns_409_with_count_and_sample():
+    client, Session = make_rule_client()
+    with Session() as session:
+        session.add(make_row(4, 1, "SQ *KURA TRAVEL", date(2026, 1, 1), category_id=TRAVEL, clean="My name"))
+        session.commit()
+
+    resp = create_from_source(client)
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["code"] == "category_mismatch"
+    assert detail["message"]
+    assert detail["count"] == 1
+    assert detail["sample"][0] == {
+        "id": 4, "date": "2026-01-01", "description": "SQ *KURA TRAVEL", "category_name": "Travel"
+    }
+    assert rule_count(Session) == 0
+    assert get_row(Session, 2).clean_description is None
+
+
+def test_delete_rule_keeps_rows_it_filled():
+    client, Session = make_rule_client()
+    rule_id = create_from_source(client).json()["id"]
+
+    resp = client.delete(f"/merchant-rules/{rule_id}")
+
+    assert resp.status_code == 204
+    assert rule_count(Session) == 0
+    row = get_row(Session, 2)
+    assert row.clean_description == "Kura Sushi"
+    assert row.category_id == DINING
+    assert client.delete(f"/merchant-rules/{rule_id}").status_code == 404
