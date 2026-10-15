@@ -55,6 +55,48 @@ export interface ImportSummary {
   suspected_duplicates: SuspectedDuplicate[];
 }
 
+export interface RuleConflict {
+  id: number;
+  match_pattern: string;
+  clean_name: string;
+  category_id: number | null;
+  account_id: number | null;
+}
+
+export type MerchantRule = RuleConflict;
+
+export interface RuleSampleRow {
+  id: number;
+  date: string;
+  description: string;
+  category_name: string | null;
+}
+
+export interface RulePreview {
+  match_pattern: string;
+  matches_source: boolean;
+  conflicting_rule: RuleConflict | null;
+  would_name_count: number;
+  would_categorize_count: number;
+  category_mismatch_count: number;
+  sample: RuleSampleRow[];
+}
+
+export interface RulePreviewRequest {
+  source_transaction_id: number;
+  match_pattern: string | null;
+  category_id: number;
+  this_account_only: boolean;
+}
+
+export interface RuleFromEditRequest {
+  source_transaction_id: number;
+  match_pattern: string;
+  clean_name: string;
+  category_id: number;
+  this_account_only: boolean;
+}
+
 export interface MonthlySummary {
   month: string;
   income_cents: number;
@@ -151,6 +193,22 @@ async function asJson(res: Response, errorMessage: string) {
   return body;
 }
 
+/** The text to show for an error response: a string detail, a {code, message} detail's message, else the fallback. */
+export function refusalMessage(body: unknown, fallback: string): string {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") {
+    return detail.message;
+  }
+  return fallback;
+}
+
+async function asJsonOrRefusal(res: Response, errorMessage: string) {
+  const body = await res.json();
+  if (!res.ok) throw new Error(refusalMessage(body, errorMessage));
+  return body;
+}
+
 export async function fetchAccounts(): Promise<Account[]> {
   const res = await fetch(`${API_BASE}/accounts`);
   if (!res.ok) throw new Error("Failed to load accounts");
@@ -209,6 +267,26 @@ export async function updateTransferMatch(id: number, status: "confirmed" | "rej
     body: JSON.stringify({ status }),
   });
   return asJson(res, "Failed to update transfer match");
+}
+
+/** What a rule remembered from a category edit would do. Read-only on the server. */
+export async function previewRule(request: RulePreviewRequest): Promise<RulePreview> {
+  const res = await fetch(`${API_BASE}/merchant-rules/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  return asJsonOrRefusal(res, "Rule preview failed");
+}
+
+/** Save a rule remembered from a category edit; the server refuses unsafe rules. */
+export async function createRuleFromEdit(request: RuleFromEditRequest): Promise<MerchantRule> {
+  const res = await fetch(`${API_BASE}/merchant-rules`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  return asJsonOrRefusal(res, "Saving the rule failed");
 }
 
 export async function fetchMonthlySummary(months: number, accountId: number | null): Promise<MonthlySummary[]> {
