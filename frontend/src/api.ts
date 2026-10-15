@@ -289,6 +289,22 @@ export async function createRuleFromEdit(request: RuleFromEditRequest): Promise<
   return asJsonOrRefusal(res, "Saving the rule failed");
 }
 
+export type MerchantRuleListItem = MerchantRule & { match_count: number };
+
+export async function fetchMerchantRules(): Promise<MerchantRuleListItem[]> {
+  const res = await fetch(`${API_BASE}/merchant-rules`);
+  if (!res.ok) throw new Error("Failed to load rules");
+  return res.json();
+}
+
+/** Delete a rule. A 404 means it was already gone, which isn't an error for the Rules tab. */
+export async function deleteMerchantRule(id: number): Promise<"deleted" | "already_deleted"> {
+  const res = await fetch(`${API_BASE}/merchant-rules/${id}`, { method: "DELETE" });
+  if (res.status === 404) return "already_deleted";
+  if (!res.ok) throw new Error(`Deleting rule #${id} failed (${res.status})`);
+  return "deleted";
+}
+
 export async function fetchMonthlySummary(months: number, accountId: number | null): Promise<MonthlySummary[]> {
   const url = new URL(`${API_BASE}/dashboard/monthly`);
   url.searchParams.set("months", String(months));

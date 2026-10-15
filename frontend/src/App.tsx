@@ -21,6 +21,7 @@ import { sortTransactions, type SortDirection, type SortKey } from "./sort";
 import Dashboard from "./Dashboard";
 import Chat from "./Chat";
 import Planning from "./Planning";
+import Rules from "./Rules";
 import HeldImportPanel from "./HeldImportPanel";
 import { heldImportReducer, retryRequest } from "./heldImport";
 import RememberRulePanel from "./RememberRulePanel";
@@ -94,6 +95,7 @@ const TABS = [
   { key: "dashboard", label: "Dashboard", icon: IconBarChart },
   { key: "chat", label: "Chat", icon: IconMessageCircle },
   { key: "planning", label: "Planning", icon: IconCompass },
+  { key: "rules", label: "Rules", icon: IconTag },
 ] as const;
 
 type View = (typeof TABS)[number]["key"];
@@ -358,6 +360,7 @@ export default function App() {
         {view === "chat" && <Chat />}
 
         {view === "planning" && <Planning />}
+        {view === "rules" && <Rules />}
 
         {view === "transactions" && (
           <>

@@ -107,8 +107,8 @@ export default function RememberRulePanel({
       {state.savedRuleId !== null ? (
         <div className="space-y-3">
           <p className="text-sm text-good">
-            Rule saved (#{state.savedRuleId}). Matching transactions without a name were updated. To undo, delete rule{" "}
-            {state.savedRuleId} with <code>DELETE /merchant-rules/{state.savedRuleId}</code>.
+            Rule saved (#{state.savedRuleId}). Matching transactions without a name were updated. To undo, delete rule
+            #{state.savedRuleId} on the Rules tab.
           </p>
           {dismissButton("Close")}
         </div>

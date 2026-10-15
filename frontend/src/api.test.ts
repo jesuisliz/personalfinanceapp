@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRuleFromEdit, fetchTransactions, previewRule, refusalMessage, uploadCsv } from "./api";
+import {
+  createRuleFromEdit,
+  deleteMerchantRule,
+  fetchMerchantRules,
+  fetchTransactions,
+  previewRule,
+  refusalMessage,
+  uploadCsv,
+} from "./api";
 
 function stubFetch(body: unknown = []) {
   const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => body });
@@ -213,5 +221,43 @@ describe("createRuleFromEdit", () => {
     await expect(createRuleFromEdit(request)).rejects.toThrow(
       "Some transactions this rule would match are in a different category"
     );
+  });
+});
+
+describe("merchant rules", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetchMerchantRules GETs /merchant-rules and returns the list", async () => {
+    const rows = [{ id: 1, match_pattern: "X", clean_name: "X", category_id: null, account_id: null, match_count: 2 }];
+    const fetchMock = stubFetch(rows);
+
+    const result = await fetchMerchantRules();
+
+    expect(requestedUrl(fetchMock).pathname).toBe("/merchant-rules");
+    expect(fetchMock.mock.calls[0][1]).toBeUndefined();
+    expect(result).toEqual(rows);
+  });
+
+  it("deleteMerchantRule sends DELETE and reports a 204 as deleted", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await deleteMerchantRule(53)).toBe("deleted");
+    expect(requestedUrl(fetchMock).pathname).toBe("/merchant-rules/53");
+    expect(fetchMock.mock.calls[0][1]).toEqual({ method: "DELETE" });
+  });
+
+  it("deleteMerchantRule reports a 404 as already deleted", async () => {
+    stubFetchError(404, { detail: "Merchant rule 53 not found" });
+
+    expect(await deleteMerchantRule(53)).toBe("already_deleted");
+  });
+
+  it("deleteMerchantRule throws on any other error status", async () => {
+    stubFetchError(500, {});
+
+    await expect(deleteMerchantRule(53)).rejects.toThrow("Deleting rule #53 failed (500)");
   });
 });
