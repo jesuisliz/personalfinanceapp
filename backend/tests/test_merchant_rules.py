@@ -1,7 +1,11 @@
+import asyncio
 from datetime import date
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app import main
 
 from app.categories.apply import apply_all_rules, apply_merchant_rules, find_matching_rule
 from app.db import Base
@@ -148,3 +152,41 @@ def test_apply_all_rules_merchant_rule_wins_over_category_rule():
     session.refresh(txn)
     assert txn.clean_description == "CMP"
     assert txn.category_id == merchant_category.id
+
+
+def test_startup_applies_merchant_rules_before_category_rules(monkeypatch):
+    """The app's lifespan must use the import pipeline's order (LLD 4.5)."""
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(bind=engine)
+    TestSession = sessionmaker(bind=engine)
+    session = TestSession()
+    account = Account(name="Startup Card", institution="StartupBank", account_type="credit_card")
+    bank_category = Category(name="Startup Bank Category")
+    merchant_category = Category(name="Startup Merchant Category")
+    session.add_all([account, bank_category, merchant_category])
+    session.commit()
+    session.add(CategoryRule(institution="StartupBank", raw_category="Food", category_id=bank_category.id))
+    session.add(MerchantRule(match_pattern="cmp", clean_name="CMP", category_id=merchant_category.id))
+    txn = make_transaction(session, "CMP ELECTRIC BILL", account_id=account.id)
+    txn.raw_category = "Food"
+    bank_only = make_transaction(session, "LOCAL DINER", account_id=account.id)
+    bank_only.raw_category = "Food"
+    session.commit()
+    txn_id, expected_category_id = txn.id, merchant_category.id
+    bank_only_id, bank_category_id = bank_only.id, bank_category.id
+    session.close()
+
+    monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "get_session", TestSession)
+
+    async def run_startup():
+        async with main.lifespan(main.app):
+            pass
+
+    asyncio.run(run_startup())
+
+    with TestSession() as check:
+        assert check.get(Transaction, txn_id).category_id == expected_category_id
+        assert check.get(Transaction, bank_only_id).category_id == bank_category_id

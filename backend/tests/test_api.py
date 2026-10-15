@@ -617,6 +617,7 @@ def test_rule_preview_unknown_source_returns_404():
 
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "source_not_found"
+    assert resp.json()["detail"]["message"]
 
 
 def test_rule_preview_source_category_changed_returns_409():
@@ -626,6 +627,7 @@ def test_rule_preview_source_category_changed_returns_409():
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "source_category_changed"
+    assert resp.json()["detail"]["message"]
 
 
 @pytest.mark.parametrize("pattern", ["", "   "])
@@ -705,6 +707,7 @@ def test_create_rule_from_unknown_source_returns_404():
 
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "source_not_found"
+    assert resp.json()["detail"]["message"]
     assert rule_count(Session) == 0
 
 
@@ -715,6 +718,7 @@ def test_create_rule_source_category_changed_beats_non_matching_pattern():
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "source_category_changed"
+    assert resp.json()["detail"]["message"]
     assert rule_count(Session) == 0
 
 
@@ -726,6 +730,7 @@ def test_create_rule_non_matching_pattern_returns_400_even_when_a_rule_owns_the_
 
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "pattern_not_matching_source"
+    assert resp.json()["detail"]["message"]
     assert rule_count(Session) == 1
 
 
@@ -755,6 +760,7 @@ def test_create_rule_conflict_beats_category_mismatch():
 
     resp = create_from_source(client)
 
+    assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "conflict"
 
 
@@ -786,7 +792,201 @@ def test_delete_rule_keeps_rows_it_filled():
 
     assert resp.status_code == 204
     assert rule_count(Session) == 0
-    row = get_row(Session, 2)
-    assert row.clean_description == "Kura Sushi"
-    assert row.category_id == DINING
+    for txn_id in (2, 3):
+        row = get_row(Session, txn_id)
+        assert row.clean_description == "Kura Sushi"
+        assert row.category_id == DINING
     assert client.delete(f"/merchant-rules/{rule_id}").status_code == 404
+
+
+def add_row(Session, *args, **kwargs):
+    with Session() as session:
+        session.add(make_row(*args, **kwargs))
+        session.commit()
+
+
+@pytest.mark.parametrize("description", ["AplPay  BLUE BOTTLE", "BLUE BOTTLE  DES:X"])
+def test_rule_preview_suggested_pattern_is_normalized(description):
+    """A raw cut here is " BLUE BOTTLE" or "BLUE BOTTLE "; preview must evaluate and report
+    the stripped pattern create would store. Row 5 matches only the stripped pattern."""
+    client, Session = make_rule_client()
+    add_row(Session, 4, 1, description, date(2026, 1, 6), category_id=DINING)
+    add_row(Session, 5, 1, "SQ *BLUE BOTTLE", date(2026, 1, 7))
+
+    resp = preview(client, source_transaction_id=4)
+
+    assert resp.status_code == 200
+    assert resp.json()["match_pattern"] == "BLUE BOTTLE"
+    assert resp.json()["would_name_count"] == 2
+
+
+def test_rule_preview_blank_description_without_pattern_returns_422():
+    client, Session = make_rule_client()
+    add_row(Session, 4, 1, "   ", date(2026, 1, 6), category_id=DINING)
+
+    resp = preview(client, source_transaction_id=4)
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "no_suggested_pattern"
+    assert resp.json()["detail"]["message"]
+
+
+def test_create_rule_from_source_with_unknown_category_returns_400():
+    """SQLite FKs are off, so a source row can hold a category id that doesn't exist."""
+    client, Session = make_rule_client()
+    add_row(Session, 4, 1, "ZZ MYSTERY SHOP", date(2026, 1, 6), category_id=99)
+
+    resp = create_from_source(client, source_transaction_id=4, category_id=99, match_pattern="ZZ MYSTERY")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "category_not_found"
+    assert resp.json()["detail"]["message"]
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_from_source_scoped_to_unknown_account_returns_400():
+    client, Session = make_rule_client()
+    add_row(Session, 4, 7, "SQ *KURA REVOLVING SUSHI", date(2026, 1, 6), category_id=DINING)
+
+    resp = create_from_source(client, source_transaction_id=4, this_account_only=True)
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "account_not_found"
+    assert resp.json()["detail"]["message"]
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_without_source_keeps_account_id():
+    client, Session = make_rule_client()
+
+    resp = client.post("/merchant-rules", json={"match_pattern": "KURA", "clean_name": "Kura", "account_id": 2})
+
+    assert resp.status_code == 200
+    assert resp.json()["account_id"] == 2
+    assert get_row(Session, 3).clean_description == "Kura"
+    assert get_row(Session, 2).clean_description is None
+
+
+def test_create_rule_without_source_unknown_account_returns_400():
+    client, Session = make_rule_client()
+
+    resp = client.post("/merchant-rules", json={"match_pattern": "KURA", "clean_name": "Kura", "account_id": 999})
+
+    assert resp.status_code == 400
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_from_source_conflicts_with_scoped_rule_on_source_account():
+    """An existing rule scoped to the source's account beats a global candidate, and a
+    scoped candidate too - the unsaved candidate sorts last in the account tier."""
+    client, Session = make_rule_client()
+    rule_id = add_existing_rule(Session, "SQ *KURA REV", GROCERIES, account_id=1)
+
+    for this_account_only in (False, True):
+        resp = create_from_source(client, this_account_only=this_account_only)
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "conflict"
+        assert resp.json()["detail"]["rule"]["id"] == rule_id
+    assert rule_count(Session) == 1
+
+
+def test_create_rule_pattern_not_matching_source_beats_category_mismatch():
+    client, Session = make_rule_client()
+    add_row(Session, 4, 1, "SQ *KURA TRAVEL", date(2026, 1, 1), category_id=TRAVEL)
+
+    resp = create_from_source(client, match_pattern="KURA TRAVEL")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "pattern_not_matching_source"
+    assert resp.json()["detail"]["message"]
+    assert rule_count(Session) == 0
+
+
+def test_rule_preview_this_account_only_with_mismatch():
+    client, Session = make_rule_client()
+    add_row(Session, 4, 1, "SQ *KURA TRAVEL", date(2026, 1, 1), category_id=TRAVEL)
+
+    resp = preview(client, this_account_only=True)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["would_name_count"] == 3  # rows 1, 2, 4; row 3 is on account 2
+    assert body["would_categorize_count"] == 1  # row 2
+    assert body["category_mismatch_count"] == 1  # row 4
+    assert [row["id"] for row in body["sample"]] == [4, 1, 2]
+
+
+def test_create_rule_source_category_cleared_returns_409():
+    client, Session = make_rule_client()
+    with Session() as session:
+        session.get(Transaction, 1).category_id = None
+        session.commit()
+
+    resp = create_from_source(client)
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "source_category_changed"
+    assert resp.json()["detail"]["message"]
+    assert rule_count(Session) == 0
+
+
+@pytest.mark.parametrize("field", ["match_pattern", "clean_name"])
+@pytest.mark.parametrize("value", ["", "   "])
+def test_create_rule_from_source_rejects_blank_text(field, value):
+    client, Session = make_rule_client()
+
+    assert create_from_source(client, **{field: value}).status_code == 422
+    assert rule_count(Session) == 0
+
+
+def test_create_rule_from_source_stores_stripped_text():
+    client, Session = make_rule_client()
+
+    resp = create_from_source(client, match_pattern="  SQ *KURA  ", clean_name="  Kura Sushi ")
+
+    assert resp.status_code == 200
+    assert resp.json()["match_pattern"] == "SQ *KURA"
+    assert resp.json()["clean_name"] == "Kura Sushi"
+    assert get_row(Session, 2).clean_description == "Kura Sushi"
+
+
+def test_create_rule_from_source_on_second_account_scopes_to_that_account():
+    client, Session = make_rule_client()
+    add_row(Session, 4, 2, "SQ *KURA REVOLVING", date(2026, 1, 6), category_id=DINING)
+
+    resp = create_from_source(client, source_transaction_id=4, this_account_only=True)
+
+    assert resp.status_code == 200
+    assert resp.json()["account_id"] == 2
+    assert get_row(Session, 3).clean_description == "Kura Sushi"
+    assert get_row(Session, 2).clean_description is None
+
+
+def test_create_rule_from_source_unknown_category_beats_non_matching_pattern():
+    client, Session = make_rule_client()
+    add_row(Session, 4, 1, "ZZ MYSTERY SHOP", date(2026, 1, 6), category_id=99)
+
+    resp = create_from_source(client, source_transaction_id=4, category_id=99, match_pattern="WALMART")
+
+    assert resp.json()["detail"]["code"] == "category_not_found"
+
+
+def test_create_rule_from_source_unknown_account_beats_non_matching_pattern():
+    client, Session = make_rule_client()
+    add_row(Session, 4, 7, "ZZ MYSTERY SHOP", date(2026, 1, 6), category_id=DINING)
+
+    resp = create_from_source(client, source_transaction_id=4, this_account_only=True, match_pattern="WALMART")
+
+    assert resp.json()["detail"]["code"] == "account_not_found"
+
+
+def test_create_rule_from_source_on_unknown_account_unscoped_is_allowed():
+    """A global rule stores no account, so the source's missing account doesn't matter."""
+    client, Session = make_rule_client()
+    add_row(Session, 4, 7, "ZZ MYSTERY SHOP", date(2026, 1, 6), category_id=DINING)
+
+    resp = create_from_source(client, source_transaction_id=4, match_pattern="ZZ MYSTERY")
+
+    assert resp.status_code == 200
+    assert resp.json()["account_id"] is None

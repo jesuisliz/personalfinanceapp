@@ -38,12 +38,12 @@ do not record that it came from an edit; nothing would read that field.
 
 - `apply_merchant_rules` checks account-scoped rules first, then global
   rules, each tier in id order; first case-insensitive substring match wins
-  (`apply.py:68-91`).
+  (now `find_matching_rule` in `apply.py`).
 - It only touches rows whose `clean_description` is NULL, and only fills
   `category_id` when it is NULL. A non-null category is never overwritten.
   Caveat: a row the user deliberately set back to Uncategorized is
   indistinguishable from a never-categorized one, and a rule may fill it.
-- It runs after every import (`pipeline.py:185`), at startup (`main.py:28-29`)
+- It runs after every import (`pipeline.py`), at startup (the `main.py` lifespan)
   and after `POST /merchant-rules`. Rows with NULL `clean_description` are
   *usually* unmatched by every existing rule, but not guaranteed (clearing a
   rename in the UI stores NULL), so the preview simulates rather than
@@ -51,9 +51,10 @@ do not record that it came from an edit; nothing would read that field.
 - On import, merchant rules run before `CategoryRule`, so a new rule also
   outranks `raw_category` mapping for future rows on accounts that have it
   (Chase). The preview cannot show that; the panel says so in one line.
-- Startup runs them in the opposite order (category rules first,
-  `main.py:27-29`), so a row both could match gets a different category
-  depending on whether it was filled at import or at startup. Fixed in 4.5.
+- Before this feature, startup ran them in the opposite order (category
+  rules first, in the `main.py` lifespan), so a row both could match got a
+  different category depending on whether it was filled at import or at
+  startup. Fixed in 4.5.
 - A rule assigning Transfers does not set `is_transfer`; the dashboard
   excludes the category regardless (`aggregates.py:35`). No interaction.
 - Live DB 2026-10-15: 76 rules, 1188 rows, 0 uncategorized, 547 with NULL
@@ -91,9 +92,12 @@ do not record that it came from an edit; nothing would read that field.
      of the last token before the first token containing a digit or `#`
      (empty if the first token has one). `TRADER JOE S #519 PORTLAND ME` ->
      `TRADER JOE S`; `MACYS  ROCKINGHAM PK` -> whole string.
-  5. `pattern = description[start:end]`. If shorter than 4 characters,
-     return the whole original description instead (`AplPay SQ` ->
-     `AplPay SQ`, never `SQ`).
+  5. `pattern = description[start:end]`, stripped. If shorter than 4
+     characters after stripping, return the whole original description,
+     stripped (`AplPay SQ` -> `AplPay SQ`, never `SQ`; `AplPay   FOO 123`
+     -> whole string, since `"  FOO"` strips to 3). A blank description
+     gives `""`. (Stripping here, before the length check, was added in the
+     11.4 fix pass; see 11.5.)
   The panel's preview and the mismatch block are the real guard; this only
   sets a sensible default.
 - **`normalize_rule_text(value) -> str`** - strips whitespace; used by both
@@ -136,7 +140,8 @@ One server function does all the checking, used by both preview and create:
 `POST /merchant-rules/preview` request: `{source_transaction_id,
 match_pattern | null, category_id, this_account_only}`; a null pattern means
 "use `suggest_match_pattern` on the source row". 404 if the source
-transaction doesn't exist; `source_category_changed` returns 409. Read-only.
+transaction doesn't exist; `source_category_changed` returns 409; a null
+pattern on a blank description returns 422 `no_suggested_pattern`. Read-only.
 Response:
 
 ```
@@ -162,7 +167,10 @@ mismatch blocks saving (9.1).
 - Optional `source_transaction_id` + `this_account_only`. With a source,
   `account_id` in the body is rejected (422); the stored account is the one
   `evaluate_candidate` derived. Refusals, checked in this order:
-  404 no such transaction; 409 `source_category_changed`; 400 pattern
+  404 no such transaction; 409 `source_category_changed`; 400
+  `category_not_found`, then (only when `this_account_only`) 400
+  `account_not_found` - SQLite FKs are off, so the source row proves
+  neither exists (added in the 11.4 fix pass); 400 pattern
   doesn't match the source; 409 `conflict` (detail includes the rule);
   409 `category_mismatch` (detail includes count and sample).
   Error detail is `{code, message, ...}` so the panel can show it.
@@ -176,7 +184,7 @@ filled; they stay editable in the table.
 ### 4.5 Startup order (`main.py`)
 
 Swap to merchant rules first, then category rules, matching the import
-pipeline (`pipeline.py:181-186`). As built, both paths call one shared
+pipeline (`pipeline.py`). As built, both paths call one shared
 `apply_all_rules(session)` (see 11.1). Live effect today: none (0 uncategorized
 rows). It matters once new rules exist, because a row filled at startup
 should get the same category as one filled at import.
@@ -315,9 +323,10 @@ Each item names the wrong implementation it must catch.
    `suggest_match_pattern` and `evaluate_candidate` are in the new
    `candidate.py` (they only exist for this feature).
 2. **`apply_all_rules(session)`** (merchant, then category) is called by
-   both `pipeline.py` and the `main.py` lifespan. The lifespan isn't
-   exercised by tests, so a test on the shared function is the only way to
-   pin the order, and one call site per path stops them drifting again.
+   both `pipeline.py` and the `main.py` lifespan, so one call site per path
+   stops them drifting again. The order is pinned twice: a test on the shared
+   function, and (added in the 11.4 fix pass) a test that runs the lifespan
+   against an in-memory session with `init_db`/`get_session` monkeypatched.
 3. **Source lookup and category check are in the router** (`load_source_row`,
    shared by preview and create) because they are HTTP refusals (404/409).
    `evaluate_candidate` takes an already-validated row.
@@ -367,7 +376,7 @@ Each item names the wrong implementation it must catch.
   - Teardown: server stopped, port free, copy deleted; real DB still 76
     rules, 1188 rows.
 
-### 11.4 Close-out review (2026-10-15) - fix pass OPEN
+### 11.4 Close-out review (2026-10-15) - fix pass DONE (see 11.5)
 
 Opus subagent ran the suite (287 passed; base 7b3e23f: 233) and mutation-
 tested on `git archive` copies. Codex reviewed but could not run tests (its
@@ -411,7 +420,7 @@ real code gaps. Next session: one fix pass, each fix a test that fails first
     conflict-before-mismatch; delete test checks row 3 too (Codex 9, 11).
 15. Docs: section 3 / 4.5 cite pre-change line numbers (Opus 13).
 
-**Deferred minors (not planned):** preview request ignores extra
+**Deferred minors (not planned; plus Opus 7 from the second review, see 11.5):** preview request ignores extra
 `account_id` instead of 422 (Opus 8); `this_account_only` without a source is
 silently ignored (Opus 9); scope filter in `evaluate_candidate` is redundant
 with precedence (Opus 12, equivalent mutant); tab-only text and
@@ -422,3 +431,81 @@ by date vs id where fixture ids track dates (Codex table).
 `category_id` (422 otherwise). Codex calls this a product decision since it
 blocks a name-only rule remembered from an edit. The panel only opens after a
 category edit, so the executor's view is keep the 422; needs Liz's call.
+
+**Liz's ruling (2026-10-15):** keep the 422. A rule remembered from an edit
+always carries the edited category.
+
+### 11.5 Fix pass results (2026-10-15)
+
+Both code fixes were written test-first; each new test failed before the fix:
+
+- Fix 1: the suggested pattern is stripped. Test `AplPay  BLUE BOTTLE`
+  previewed `" BLUE BOTTLE"` before the fix. First built as
+  `normalize_rule_text` in the preview route; moved into
+  `suggest_match_pattern` after the second review (below) so the strip
+  happens before the 4-character check.
+- Fix 2: `check_rule_from_source` checks the category exists, and the
+  source's account exists when `this_account_only`. Refusals are 400
+  `category_not_found` / `account_not_found`, placed after the 404/409 source
+  checks and before the pattern check. Before the fix both requests saved a
+  rule (200) pointing at a nonexistent id. (The first category test failed
+  for the wrong reason - a fixture row caused `category_mismatch` - and was
+  rewritten to use a description nothing else matches.)
+
+Items 3-14 are tests on behavior that already worked, so each was proven by
+a named mutant applied to a scratch copy with the full suite run. All 18
+were killed; for 10, the new test was the only failure:
+
+| Item | Mutant | Killed by |
+|---|---|---|
+| 3 | no-source `account_id = None`; account 400 check removed | `..._without_source_keeps_account_id`, `..._unknown_account_returns_400` |
+| 4 | `would_categorize_count` over all won rows | `test_evaluate_categorize_count_only_over_rows_it_names` |
+| 5 | global tier first; unsaved candidate first in its tier | `..._conflicts_with_scoped_rule_on_source_account` |
+| 6 | any scoped rule in the account tier | `test_evaluate_rule_scoped_to_another_account_never_wins` |
+| 7 | mismatch checked before pattern | `..._pattern_not_matching_source_beats_category_mismatch` |
+| 8 | preview ignores `this_account_only`; mismatch count zeroed | `test_rule_preview_this_account_only_with_mismatch` |
+| 9 | NULL source category allowed | `..._source_category_cleared_returns_409` |
+| 10 | lifespan applies category rules first | `test_startup_applies_merchant_rules_before_category_rules` |
+| 11 | pattern / name not normalized | `..._from_source_stores_stripped_text`, `..._from_source_rejects_blank_text` |
+| 12 | scope pinned to account 1 | `..._on_second_account_scopes_to_that_account` |
+| 13 | `evaluate_candidate` commits | `test_evaluate_never_commits_or_flushes_changes` |
+| 14 | blank `message` on three refusals | the 404/409/400 refusal tests |
+
+Item 14's extra row-3 check in the delete test is coverage only (no
+distinct mutant). Item 15 done: sections 3 and 4.5 cite symbols, not line
+numbers.
+
+**Second review (fresh Opus subagent + Codex, both ran the suite: 306
+passed).** No bug in the two fixes. Findings, all verified against the code
+and fixed:
+
+- LLD 4.3 didn't list the new 400s (both). Fixed above.
+- The new 400s' position wasn't pinned (Opus): moving them after the pattern
+  check survived. Tests `..._unknown_category_beats_non_matching_pattern` /
+  `..._unknown_account_beats_non_matching_pattern`.
+- The account check being scoped-only wasn't pinned (Opus). Test
+  `..._on_unknown_account_unscoped_is_allowed`.
+- Startup test passed with category rules dropped from startup (both).
+  Added a row only the category rule matches.
+- Fix 1 test pinned only the response string; evaluating the raw pattern or
+  `.lstrip()` survived (Opus). Now parametrized over a leading and a trailing
+  cut (`BLUE BOTTLE  DES:X` cut `"BLUE BOTTLE "`) and asserts
+  `would_name_count` with a row only the stripped pattern matches.
+- The length check ran before stripping, so `AplPay   FOO 123` suggested
+  `FOO` (3 chars), breaking 4.1's minimum (Opus). Fixed in
+  `suggest_match_pattern`; table cases added, including `"  AB 12  "` for
+  the stripped fallback (the first padded case didn't reach the fallback -
+  caught when its mutant survived).
+- A blank description made the null-pattern preview raise `ValueError`
+  (500) (both; 0 blank descriptions in real data, but the Chase parser
+  doesn't reject them). Now 422 `no_suggested_pattern`.
+- Item 13 didn't literally catch `flush`: `before_flush` doesn't fire for a
+  clean session, so an explicit `session.flush()` survived (Codex). The
+  test now turns autoflush off and makes `flush` raise.
+
+Each fix's mutant (new 400s after the pattern check, unconditional account
+check, startup merchant-only, `.lstrip()`, unstripped cut, unstripped
+fallback, blank not refused, explicit flush) was run on a scratch copy and
+killed. Deferred: preview doesn't check the category exists (Opus 7; read-
+only, and create refuses). Real data: 0 of 706 distinct descriptions change
+suggestion. Suite: 315 passed (287 before the pass).

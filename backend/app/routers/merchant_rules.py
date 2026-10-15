@@ -62,6 +62,8 @@ def preview_merchant_rule(body: MerchantRulePreviewRequest, db: Session = Depend
     """Report what a rule remembered from a category edit would do. Read-only."""
     source = load_source_row(db, body.source_transaction_id, body.category_id)
     match_pattern = body.match_pattern or suggest_match_pattern(source.description)
+    if not match_pattern:
+        raise refuse(422, "no_suggested_pattern", "This transaction has no description to suggest a pattern from")
     evaluation = evaluate_candidate(db, source, match_pattern, body.category_id, body.this_account_only)
     return MerchantRulePreviewOut(
         match_pattern=evaluation.match_pattern,
@@ -104,11 +106,17 @@ def create_merchant_rule(body: MerchantRuleCreate, db: Session = Depends(get_db)
 def check_rule_from_source(db: Session, body: MerchantRuleCreate) -> int | None:
     """Refuse a rule remembered from a category edit if it would be unsafe; return its account_id.
 
-    Refusals in order: source missing (404), source category changed (409), pattern
-    doesn't match the source (400), an existing rule would still win the source
-    (409 conflict), rows the rule would win already have another category (409).
+    Refusals in order: source missing (404), source category changed (409), category
+    or (when scoped) account doesn't exist (400 - SQLite FKs are off, so the source
+    row proves neither), pattern doesn't match the source (400), an existing rule
+    would still win the source (409 conflict), rows the rule would win already have
+    another category (409).
     """
     source = load_source_row(db, body.source_transaction_id, body.category_id)
+    if db.get(Category, body.category_id) is None:
+        raise refuse(400, "category_not_found", f"Category {body.category_id} not found")
+    if body.this_account_only and db.get(Account, source.account_id) is None:
+        raise refuse(400, "account_not_found", f"Account {source.account_id} not found")
     evaluation = evaluate_candidate(db, source, body.match_pattern, body.category_id, body.this_account_only)
     if not evaluation.matches_source:
         raise refuse(400, "pattern_not_matching_source", "The pattern doesn't match this transaction")

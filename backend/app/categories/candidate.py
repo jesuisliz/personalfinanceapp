@@ -33,18 +33,19 @@ def suggest_match_pattern(description: str) -> str:
     """Suggest a match_pattern for a rule built from `description`.
 
     A pre-fill only: the user sees and can edit it. The result is always a
-    contiguous slice of `description`, so it always matches its own row.
+    stripped contiguous slice of `description`, so it always matches its own row.
     Algorithm (LLD 4.1): drop a leading "AplPay "; cut at " DES:"; else keep a
     single-token processor prefix plus the first word after its "*"; else keep
     the words before the first one containing a digit or "#". A result shorter
-    than 4 characters falls back to the whole description.
+    than 4 characters after stripping falls back to the whole description,
+    stripped. A blank description gives "".
     """
     start = len(APPLE_PAY_PREFIX) if description.startswith(APPLE_PAY_PREFIX) else 0
     body = description[start:]
     end = start + _suggested_body_end(body)
-    pattern = description[start:end]
+    pattern = description[start:end].strip()
     if len(pattern) < MIN_PATTERN_LENGTH:
-        return description
+        return description.strip()
     return pattern
 
 

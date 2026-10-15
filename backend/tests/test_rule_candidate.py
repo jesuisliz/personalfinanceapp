@@ -2,7 +2,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.categories.candidate import evaluate_candidate, normalize_rule_text, suggest_match_pattern
@@ -32,6 +32,10 @@ from app.models import Account, Category, MerchantRule, Transaction
         ("AplPay SQ", "AplPay SQ"),
         ("KFC J123 TOKYO", "KFC J123 TOKYO"),
         ("ACME*", "ACME*"),
+        ("BLUE BOTTLE  DES:X", "BLUE BOTTLE"),
+        ("AplPay   FOO 123", "AplPay   FOO 123"),  # "  FOO" strips to 3 chars: whole description
+        ("  PADDED SHOP  ", "PADDED SHOP"),
+        ("  AB 12  ", "AB 12"),  # cut "AB" is too short: whole description, stripped
     ],
 )
 def test_suggest_match_pattern(description, expected):
@@ -191,3 +195,46 @@ def test_evaluate_is_read_only(kura):
     session.expire_all()
     assert rows.blank.clean_description is None
     assert rows.blank.category_id is None
+
+
+def test_evaluate_categorize_count_only_over_rows_it_names(kura):
+    """A row with a name already set but no category is won by the candidate, yet the
+    candidate doesn't name it, so apply_merchant_rules never categorizes it either."""
+    session, rows = kura
+    add_transaction(session, 1, "SQ *KURA RENAMED", clean="Mine", day=6)
+
+    result = evaluate_candidate(session, rows.src, "SQ *KURA", DINING, this_account_only=False)
+
+    assert result.would_name_count == 3
+    assert result.would_categorize_count == 2
+
+
+def test_evaluate_rule_scoped_to_another_account_never_wins(kura):
+    session, rows = kura
+    add_rule(session, "SQ *KURA", category_id=3, account_id=2)
+
+    result = evaluate_candidate(session, rows.src, "SQ *KURA REV", DINING, this_account_only=False)
+
+    assert result.conflicting_rule is None
+    assert result.would_name_count == 2  # src, blank; other_acct stays with its account-2 rule
+    assert rows.other_acct.id not in [txn.id for txn in result.sample]
+
+
+def test_evaluate_never_commits_or_flushes_changes(kura, monkeypatch):
+    session, rows = kura
+    flushed = []
+    event.listen(session, "before_flush", lambda *args: flushed.append(True))
+
+    def fail_commit():
+        raise AssertionError("evaluate_candidate committed")
+
+    def fail_flush(*args, **kwargs):
+        raise AssertionError("evaluate_candidate flushed")
+
+    session.autoflush = False  # so any flush below is an explicit call, not a query's autoflush
+    monkeypatch.setattr(session, "commit", fail_commit)
+    monkeypatch.setattr(session, "flush", fail_flush)
+
+    evaluate_candidate(session, rows.src, "SQ *KURA", DINING, this_account_only=False)
+
+    assert flushed == []
