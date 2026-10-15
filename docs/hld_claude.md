@@ -200,6 +200,10 @@ Key design decisions confirmed with the user before writing the LLD (all via `As
 
 Success criteria: all 5 milestones (persistence, resume-on-refresh, conversation list/New, rename, delete) built and independently live-verified against the real chat UI and `finance.db`, full backend suite (161/161) and frontend tsc/oxlint/vitest passing throughout. See `lld_phase6_claude.md` §5 for per-milestone acceptance detail.
 
+### Post-roadmap additions
+
+- **Merchant Rules tab** (2026-10-15): a 5th tab listing every merchant rule with how many transactions it wins today, plain-text search, and delete with an inline confirm. Read-only apart from delete; no schema change. Counts independently verified against a sqlite3-only oracle (77/77). Design and results in `lld_merchant_rules_tab_claude.md`.
+
 ## 7. Explicit Non-Goals (current phase)
 
 - No bank integrations / Plaid.

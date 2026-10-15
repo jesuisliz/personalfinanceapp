@@ -1,6 +1,6 @@
 # LLD: Merchant Rules tab (list, search, delete)
 
-Status: v2, 2026-10-15. Design approved by Liz; Codex spec review folded in (section 9). No code written.
+Status: v2, 2026-10-15. Design approved by Liz; Codex spec review folded in (section 9). Built and verified 2026-10-15; results in section 10.
 
 ## 1. Context
 
@@ -27,7 +27,7 @@ provenance column. So the count is **the number of transactions whose
 description currently has this rule as its highest-precedence match, whether
 or not the row is already named**. It measures coverage (is this rule dead or
 shadowed?), not what applying it would change, and not what it actually
-filled. The UI says "matches N transactions". Deleting a rule must say that
+filled. The UI shows N in a "Matches" column (section 4.2). Deleting a rule must say that
 rows it already filled keep their name and category (already true;
 `delete_merchant_rule` docstring).
 
@@ -96,8 +96,9 @@ are read-only finance aggregates.
   `deleteGoal`/`deleteConversation`, which throw a generic error on any
   non-ok status, a 404 resolves to `"already_deleted"`. Any other non-ok
   status throws.
-- `rules.ts` (pure, vitest-tested): `filterRules(rules, query, categoryNames,
-  accountNames)` and `sortRules`.
+- `merchantRules.ts` (pure, vitest-tested; named `rules.ts` until built - see
+  section 10): `filterRules(rules, query, categories, accounts)` and
+  `sortRulesNewestFirst`.
   - Filter: case-insensitive substring (anywhere in the string, on both the
     query and the data) against the pattern, clean name, category label and
     scope label. A rule is kept if any field matches.
@@ -181,7 +182,7 @@ Backend, in `backend/tests/test_categories.py` / `test_api.py`:
    - Transaction fields are unchanged, and a second delete returns 404.
 
 Frontend (vitest):
-- `rules.test.ts`:
+- `merchantRules.test.ts`:
   - Filter: a substring in the middle of each of the four fields, mixed case
     on both the query and the data, and OR across fields.
   - Labels: null and unknown for both category and scope, and the unknown
@@ -239,7 +240,7 @@ mutation-test rule) and kill any that survive.
 
 One phase, three tasks, with a hard stop after each:
 1. Backend: `count_rule_wins`, schema, endpoint, tests 1-5, mutation check.
-2. Frontend: `api.ts` functions, `rules.ts` + vitest, `Rules.tsx`, App tab,
+2. Frontend: `api.ts` functions, `merchantRules.ts` + vitest, `Rules.tsx`, App tab,
    panel text.
 3. Oracle script, live walkthrough on a DB copy, Opus + Codex reviews, docs
    (HLD section 6, this LLD's results section, memory), commit and push.
@@ -266,3 +267,69 @@ findings; every factual claim checked against the code before acting.
 - Rejected: 14, which called the oracle, mutation testing and two
   implementation reviewers disproportionate. They are Liz's standing review
   rules for every change.
+
+## 10. Results (2026-10-15)
+
+Built inline on main in three tasks plus two review fix passes: commits
+03a1875 (backend), 8a650b9 (frontend), 5395225 and aad15f0 (review fixes).
+
+**Tests.** Backend 315 -> 325 passed. Frontend vitest 100 -> 121 passed.
+`tsc -b` and `oxlint` clean. Every new test was watched failing first, or,
+for tests pinning already-correct code, shown to kill a named mutant. In
+total 27 mutants were applied and all killed (8 backend in Task 1, 12
+frontend in Task 2, 4 after review 1, 3 after review 2).
+
+**Deviations from the plan.**
+- The pure module is `merchantRules.ts`, not `rules.ts`. `rules.ts` and
+  `Rules.tsx` differ only in case, so on Windows `import Rules from "./Rules"`
+  resolved to `rules.ts` and `tsc -b` failed (TS1192/TS1261).
+- The HLD had no post-roadmap section; one was added after Phase 6.
+
+**Independent oracle.** A sqlite3-only script with its own copy of the
+precedence logic (scoped rules by id, then global by id, first
+case-insensitive substring wins) agreed with `GET /merchant-rules` on all 77
+counts, on a snapshot and again on the real DB. Rule 53 = 0, rule 77 = 2,
+rule 61 = 3 (equal to a separate SQL count of account-3 rows containing
+"payment - thank you"). Rules 53 and 56 are the only dead rules; 639 of
+1188 transactions are won by some rule.
+
+**Timing.** `GET /merchant-rules` about 0.28 s over curl; about 70 ms
+in-process (review 1's measurement). Acceptable for a tab opened on demand.
+
+**Live walkthrough** (browser, against a DB copy served on :8000; a marker
+note proved the server read the copy):
+- Header "Merchant rules (77)", newest first, dead rules muted.
+- Search: `xpress` -> rules 77 and 1 (matches an independent in-page
+  filter), `acct#` literal, `sq *` and `zzz` -> "No rules match <query>",
+  whitespace -> all rules.
+- Delete -> Cancel sends no request.
+- A real double-click on Confirm with a filter active sent exactly one
+  DELETE (server log: 204), kept the query, and dropped the rule. The browser
+  tool reported that 204 as 503; the server log is authoritative.
+- A whole-table snapshot (1188 rows) was unchanged after the delete.
+- A rule deleted behind the page's back -> "Rule #56 was already deleted."
+- Saving a rule from the remember-edit panel shows "To undo, delete rule #78
+  on the Rules tab."; returning to Rules re-fetched and listed #78 first.
+- Finding during review: after a delete, the row was re-enabled before the
+  reload finished. Shown live with a fetch stub (DELETE faked, reload
+  delayed): Delete ENABLED during reload before the fix, disabled after.
+
+**Reviews.**
+- Review 1, fresh Opus: 0 Critical/Important, 4 Minor, all fixed (endpoint
+  KeyError if a rule is created between the count and the list read;
+  stale-row double delete; scope-label and non-404 error test gaps).
+- Codex hit its usage limit mid-review. Its partial run reported pytest 323,
+  vitest 118, oxlint and tsc clean, and no findings. A second fresh Opus pass
+  substituted for it; two Opus passes are weaker than Opus plus Codex.
+- Review 2, fresh Opus: 1 Important, fixed. The "already named" test gave
+  the named row the rule's own clean name, so a count that skips hand-renamed
+  rows survived. Also fixed two surviving mutants: counting distinct rows,
+  and a GET that applies rules.
+
+**Deferred minors.**
+- Search does not match the rule id (typing 78 does not find #78); new rules
+  sort to the top instead.
+- The load-error state has no retry and shows a stale or zero header count.
+- Delete errors use the secondary text colour, not the error colour.
+- Opening the inline confirm widens the action column and re-flows the table.
+- The Category dot and muted zero are checked by reading and screenshot only.

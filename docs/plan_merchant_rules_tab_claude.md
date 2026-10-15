@@ -18,6 +18,8 @@ React 19 + TypeScript + Vite + Tailwind v4 + vitest + oxlint (frontend).
 
 **Spec:** `docs/lld_merchant_rules_tab_claude.md` (v2). Read it before any task.
 
+**As executed (2026-10-15):** `rules.ts` / `rules.test.ts` below were built as `merchantRules.ts` / `merchantRules.test.ts`, because `rules.ts` and `Rules.tsx` differ only in case and collide on Windows. See the LLD's section 10.
+
 ## Global Constraints
 
 - No schema change, no new table or column (spec section 2).
