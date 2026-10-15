@@ -324,11 +324,11 @@ describe("previews", () => {
   });
   it("does not overwrite a pattern the user typed", () => {
     const state = run(opened(),
-      { type: "patternEdited", pattern: "DOORDASH" },
+      { type: "patternEdited", pattern: "DOORDASH " },
       { type: "previewRequested", seq: 1 },
       { type: "previewReceived", seq: 1, preview: preview({ match_pattern: "DOORDASH" }), thisAccountOnly: false },
     );
-    expect(state?.pattern).toBe("DOORDASH");
+    expect(state?.pattern).toBe("DOORDASH ");
     expect(state?.preview?.match_pattern).toBe("DOORDASH");
   });
   it("ignores a response that is not the latest request", () => {
