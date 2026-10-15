@@ -1,15 +1,18 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   fetchAccounts,
   fetchCategories,
   fetchSuggestedTransferMatches,
   fetchTransactions,
+  createRuleFromEdit,
   detectTransfers,
+  previewRule,
   updateTransaction,
   updateTransferMatch,
   uploadCsv,
   type Account,
   type Category,
+  type RulePreviewRequest,
   type Transaction,
   type TransferMatch,
 } from "./api";
@@ -20,6 +23,8 @@ import Chat from "./Chat";
 import Planning from "./Planning";
 import HeldImportPanel from "./HeldImportPanel";
 import { heldImportReducer, retryRequest } from "./heldImport";
+import RememberRulePanel from "./RememberRulePanel";
+import { previewRequestBody, rememberRuleReducer, saveRequest } from "./rememberRule";
 import { Card, SecondaryButton, inputClass } from "./ui";
 import { CategoryDropdown } from "./CategoryDropdown";
 import {
@@ -133,6 +138,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [heldImport, dispatchHeldImport] = useReducer(heldImportReducer, null);
+  const [rememberRule, dispatchRememberRule] = useReducer(rememberRuleReducer, null);
+  const previewSeq = useRef(0);
   const [editingDescriptionId, setEditingDescriptionId] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
@@ -188,8 +195,37 @@ export default function App() {
   }
 
   async function handleCategoryChange(txnId: number, categoryId: number | null) {
-    await updateTransaction(txnId, { category_id: categoryId });
+    const updated = await updateTransaction(txnId, { category_id: categoryId });
+    dispatchRememberRule({ type: "categoryEdited", txn: updated, categoryId });
     reload();
+  }
+
+  const previewKey = rememberRule && JSON.stringify(previewRequestBody(rememberRule));
+
+  useEffect(() => {
+    const request: RulePreviewRequest | null = previewKey && JSON.parse(previewKey);
+    if (!request) return;
+    const timer = setTimeout(() => {
+      const seq = ++previewSeq.current;
+      dispatchRememberRule({ type: "previewRequested", seq });
+      previewRule(request).then(
+        (preview) => dispatchRememberRule({ type: "previewReceived", seq, preview, thisAccountOnly: request.this_account_only }),
+        (err: Error) => dispatchRememberRule({ type: "previewFailed", seq, message: err.message })
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [previewKey]);
+
+  async function handleSaveRule() {
+    if (!rememberRule) return;
+    dispatchRememberRule({ type: "saveStarted" });
+    try {
+      const rule = await createRuleFromEdit(saveRequest(rememberRule));
+      dispatchRememberRule({ type: "saveSucceeded", ruleId: rule.id });
+      reload();
+    } catch (err) {
+      dispatchRememberRule({ type: "saveFailed", message: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   function startEditingDescription(txn: Transaction) {
@@ -507,6 +543,19 @@ export default function App() {
                 onToggle={(hash) => dispatchHeldImport({ type: "toggle", hash })}
                 onImportSelected={handleImportSelected}
                 onDismiss={() => dispatchHeldImport({ type: "dismiss" })}
+              />
+            )}
+
+            {rememberRule && (
+              <RememberRulePanel
+                state={rememberRule}
+                categoryName={categoryById.get(rememberRule.categoryId)?.name ?? `Category ${rememberRule.categoryId}`}
+                accountName={accountById.get(rememberRule.source.account_id)?.name ?? `Account ${rememberRule.source.account_id}`}
+                onPatternChange={(pattern) => dispatchRememberRule({ type: "patternEdited", pattern })}
+                onNameChange={(name) => dispatchRememberRule({ type: "nameEdited", name })}
+                onScopeToggle={() => dispatchRememberRule({ type: "scopeToggled" })}
+                onSave={handleSaveRule}
+                onDismiss={() => dispatchRememberRule({ type: "dismissed" })}
               />
             )}
 
