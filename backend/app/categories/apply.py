@@ -54,23 +54,19 @@ def apply_merchant_rules(session: Session) -> int:
     the transaction doesn't already have one) based on a case-insensitive
     substring match of MerchantRule.match_pattern against Transaction.description.
 
-    A rule scoped to a specific account_id is checked before any account-wide
-    (account_id is None) rule, since generic bank statement text (e.g. "PAYMENT -
-    THANK YOU") can carry no identifying info and would otherwise risk matching
-    the same text on a different account. Within each tier, first matching rule
-    wins (rules are checked in id order).
+    Which rule claims a transaction is decided by find_matching_rule: rules scoped
+    to the transaction's account first, since generic bank statement text (e.g.
+    "PAYMENT - THANK YOU") can carry no identifying info and would otherwise risk
+    matching the same text on a different account; then global rules.
 
     Never overwrites a transaction that already has a clean_description — manual
     edits and prior rule applications are never clobbered. Safe to call repeatedly.
 
     Returns the number of transactions updated.
     """
-    all_rules = session.execute(select(MerchantRule).order_by(MerchantRule.id)).scalars().all()
+    all_rules = session.execute(select(MerchantRule)).scalars().all()
     if not all_rules:
         return 0
-
-    account_rules = [rule for rule in all_rules if rule.account_id is not None]
-    global_rules = [rule for rule in all_rules if rule.account_id is None]
 
     candidates = session.execute(
         select(Transaction).where(Transaction.clean_description.is_(None))
@@ -78,17 +74,44 @@ def apply_merchant_rules(session: Session) -> int:
 
     updated = 0
     for transaction in candidates:
-        description_lower = transaction.description.lower()
-        applicable_rules = [
-            rule for rule in account_rules if rule.account_id == transaction.account_id
-        ] + global_rules
-        for rule in applicable_rules:
-            if rule.match_pattern.lower() in description_lower:
-                transaction.clean_description = rule.clean_name
-                if rule.category_id is not None and transaction.category_id is None:
-                    transaction.category_id = rule.category_id
-                updated += 1
-                break
+        rule = find_matching_rule(all_rules, transaction.description, transaction.account_id)
+        if rule is None:
+            continue
+        transaction.clean_description = rule.clean_name
+        if rule.category_id is not None and transaction.category_id is None:
+            transaction.category_id = rule.category_id
+        updated += 1
 
     session.commit()
     return updated
+
+
+def find_matching_rule(rules, description: str, account_id: int) -> MerchantRule | None:
+    """Return the rule that claims `description` on `account_id`, or None.
+
+    Account-scoped rules for this account are checked before global rules; within a
+    tier, rules are checked in ascending id, with an unsaved rule (id None) last.
+    First case-insensitive substring match wins. Sorts itself; caller order is ignored.
+    """
+    description_lower = description.lower()
+
+    def tier(scoped: bool):
+        return sorted(
+            (r for r in rules if (r.account_id == account_id if scoped else r.account_id is None)),
+            key=lambda r: (r.id is None, r.id or 0),
+        )
+
+    for rule in tier(True) + tier(False):
+        if rule.match_pattern.lower() in description_lower:
+            return rule
+    return None
+
+
+def apply_all_rules(session: Session) -> None:
+    """Apply merchant rules, then category rules - the one order used everywhere.
+
+    Merchant rules go first: a specific merchant match is more accurate than a
+    bank's generic raw_category, so it should win when both apply.
+    """
+    apply_merchant_rules(session)
+    apply_category_rules(session)

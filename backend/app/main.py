@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.categories.apply import apply_category_rules, apply_merchant_rules
+from app.categories.apply import apply_all_rules
 from app.categories.seed import seed_categories
 from app.db import get_session, init_db
 from app.routers import (
@@ -25,8 +25,7 @@ async def lifespan(app: FastAPI):
     session = get_session()
     try:
         seed_categories(session)
-        apply_category_rules(session)
-        apply_merchant_rules(session)
+        apply_all_rules(session)
     finally:
         session.close()
     yield

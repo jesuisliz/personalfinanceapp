@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.categories.apply import apply_category_rules, apply_merchant_rules
+from app.categories.apply import apply_all_rules
 from app.config import AccountDefinition, ConfigEntry
 from app.imports.base import ParsedRow, compute_row_hashes
 from app.imports.overlap import WINDOW_DAYS, ExistingRow, NewRow, find_suspected_duplicates
@@ -179,11 +179,7 @@ def import_file(
             rows_skipped += 1 - inserted  # a concurrent import inserted the same hash first
 
     session.commit()
-    # Merchant rules run first: a specific merchant match (e.g. a utility company)
-    # is more accurate than a bank's own generic raw_category, so it should win
-    # when both are available for the same transaction.
-    apply_merchant_rules(session)
-    apply_category_rules(session)
+    apply_all_rules(session)
 
     suspects.sort(key=lambda s: (s.account_name, s.date, s.description, s.amount_cents, s.row_hash))
     return ImportSummary(

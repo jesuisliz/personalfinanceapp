@@ -3,9 +3,9 @@ from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.categories.apply import apply_merchant_rules
+from app.categories.apply import apply_all_rules, apply_merchant_rules, find_matching_rule
 from app.db import Base
-from app.models import Account, Category, MerchantRule, Transaction
+from app.models import Account, Category, CategoryRule, MerchantRule, Transaction
 
 
 def make_session():
@@ -96,3 +96,55 @@ def test_first_matching_rule_wins():
 
     session.refresh(txn)
     assert txn.clean_description == "Generic Coffee Shop"
+
+
+def test_find_matching_rule_sorts_by_id_not_input_order():
+    newer = MerchantRule(id=5, match_pattern="kura", clean_name="A")
+    older = MerchantRule(id=2, match_pattern="kura rev", clean_name="B")
+
+    assert find_matching_rule([newer, older], "SQ *KURA REVOLVING", 1) is older
+
+
+def test_find_matching_rule_account_tier_beats_older_global():
+    global_rule = MerchantRule(id=1, match_pattern="payment", clean_name="Global")
+    account_rule = MerchantRule(id=9, match_pattern="payment", clean_name="Scoped", account_id=1)
+    rules = [global_rule, account_rule]
+
+    assert find_matching_rule(rules, "PAYMENT - THANK YOU", 1) is account_rule
+    assert find_matching_rule(rules, "PAYMENT - THANK YOU", 2) is global_rule
+
+
+def test_find_matching_rule_unsaved_candidate_is_last_in_its_tier():
+    saved = MerchantRule(id=3, match_pattern="kura", clean_name="Saved")
+    global_candidate = MerchantRule(id=None, match_pattern="kura", clean_name="Candidate")
+    scoped_candidate = MerchantRule(id=None, match_pattern="kura", clean_name="Candidate", account_id=1)
+
+    assert find_matching_rule([global_candidate, saved], "SQ *KURA", 1) is saved
+    assert find_matching_rule([saved, scoped_candidate], "SQ *KURA", 1) is scoped_candidate
+
+
+def test_find_matching_rule_returns_none_when_nothing_matches():
+    rules = [MerchantRule(id=1, match_pattern="kura", clean_name="Kura")]
+
+    assert find_matching_rule(rules, "WALMART", 1) is None
+
+
+def test_apply_all_rules_merchant_rule_wins_over_category_rule():
+    session = make_session()
+    account = setup_account(session)
+    bank_category = Category(name="Dining")
+    merchant_category = Category(name="Utilities")
+    session.add_all([bank_category, merchant_category])
+    session.commit()
+    session.add(CategoryRule(institution="Chase", raw_category="Food & Drink", category_id=bank_category.id))
+    session.add(MerchantRule(match_pattern="cmp", clean_name="CMP", category_id=merchant_category.id))
+    session.commit()
+    txn = make_transaction(session, "CMP ELECTRIC BILL", account_id=account.id)
+    txn.raw_category = "Food & Drink"
+    session.commit()
+
+    apply_all_rules(session)
+
+    session.refresh(txn)
+    assert txn.clean_description == "CMP"
+    assert txn.category_id == merchant_category.id
