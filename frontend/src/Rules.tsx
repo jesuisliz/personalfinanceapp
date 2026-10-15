@@ -50,9 +50,10 @@ export default function Rules() {
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
+      // Keep the row disabled until the reload drops it, so it can't be deleted twice.
+      await load();
       setDeletingId(null);
       setConfirmingId(null);
-      await load();
     }
   }
 

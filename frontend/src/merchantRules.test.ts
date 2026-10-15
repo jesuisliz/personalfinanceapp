@@ -3,7 +3,8 @@ import type { Account, Category, MerchantRuleListItem } from "./api";
 import { filterRules, ruleCategoryLabel, ruleScopeLabel, sortRulesNewestFirst } from "./merchantRules";
 
 const categories: Category[] = [{ id: 4, name: "Dining Out", parent_id: null }];
-const accounts: Account[] = [{ id: 8, name: "American Express", institution: "American Express", account_type: "credit_card" }];
+// Name and institution differ, as on real accounts (BOA has 5 accounts under one institution).
+const accounts: Account[] = [{ id: 8, name: "Platinum Express", institution: "American Express", account_type: "credit_card" }];
 
 function rule(overrides: Partial<MerchantRuleListItem>): MerchantRuleListItem {
   return { id: 1, match_pattern: "PATTERN", clean_name: "Name", category_id: null, account_id: null, match_count: 0, ...overrides };
@@ -22,7 +23,7 @@ describe("rule labels", () => {
   });
 
   it("names the account, 'All accounts' for a global rule, and the id for an unknown one", () => {
-    expect(ruleScopeLabel(amex, accounts)).toBe("American Express");
+    expect(ruleScopeLabel(amex, accounts)).toBe("Platinum Express");
     expect(ruleScopeLabel(kura, accounts)).toBe("All accounts");
     expect(ruleScopeLabel(orphan, accounts)).toBe("Unknown account #42");
   });
@@ -41,6 +42,7 @@ describe("filterRules", () => {
     ["unknown category label", "unknown category", [3]],
     ["unknown account label", "account #42", [3]],
     ["regex characters taken literally", "sq *k", [2]],
+    ["trimmed query, trailing space", "sush ", [2]],
   ])("matches on %s", (_label, query, expected) => {
     expect(ids(query as string)).toEqual(expected);
   });

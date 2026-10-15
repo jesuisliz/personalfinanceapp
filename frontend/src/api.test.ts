@@ -260,4 +260,16 @@ describe("merchant rules", () => {
 
     await expect(deleteMerchantRule(53)).rejects.toThrow("Deleting rule #53 failed (500)");
   });
+
+  it("deleteMerchantRule throws on a non-404 client error", async () => {
+    stubFetchError(409, {});
+
+    await expect(deleteMerchantRule(53)).rejects.toThrow("Deleting rule #53 failed (409)");
+  });
+
+  it("fetchMerchantRules throws when the server errors", async () => {
+    stubFetchError(500, {});
+
+    await expect(fetchMerchantRules()).rejects.toThrow("Failed to load rules");
+  });
 });

@@ -58,7 +58,7 @@ def list_merchant_rules(db: Session = Depends(get_db)):
     counts = count_rule_wins(db)
     rules = db.execute(select(MerchantRule).order_by(MerchantRule.id)).scalars().all()
     return [
-        MerchantRuleListItem(**MerchantRuleOut.model_validate(rule).model_dump(), match_count=counts[rule.id])
+        MerchantRuleListItem(**MerchantRuleOut.model_validate(rule).model_dump(), match_count=counts.get(rule.id, 0))
         for rule in rules
     ]
 

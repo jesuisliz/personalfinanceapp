@@ -826,6 +826,19 @@ def test_list_rules_reports_match_counts_and_delete_unshadows_the_next_rule():
     assert client.delete(f"/merchant-rules/{broad}").status_code == 404
 
 
+def test_list_rules_reports_zero_for_a_rule_created_after_counting(monkeypatch):
+    """The count and the list are two reads; a rule saved between them (another
+    window) must list with 0, not crash the endpoint with a KeyError."""
+    client, Session = make_rule_client()
+    rule_id = add_existing_rule(Session, "KURA", DINING)
+    monkeypatch.setattr("app.routers.merchant_rules.count_rule_wins", lambda db: {})
+
+    resp = client.get("/merchant-rules")
+
+    assert resp.status_code == 200
+    assert [(r["id"], r["match_count"]) for r in resp.json()] == [(rule_id, 0)]
+
+
 def test_list_rules_with_no_rules_is_empty_list():
     client, _ = make_rule_client()
 
