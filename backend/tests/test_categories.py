@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.categories.apply import apply_category_rules, apply_merchant_rules
+from app.categories.apply import apply_category_rules, apply_merchant_rules, count_rule_wins, find_matching_rule
 from app.categories.seed import SEED_TAXONOMY, seed_categories
 from app.db import Base
 from app.models import Account, Category, CategoryRule, MerchantRule, Transaction
@@ -258,3 +258,96 @@ def test_account_scoped_merchant_rule_overrides_global_rule_for_same_text():
     session.refresh(travel_rewards_txn)
     assert cash_rewards_txn.clean_description == "BofA Cash Rewards Card Payment"
     assert travel_rewards_txn.clean_description == "Generic Card Payment"
+
+
+# --- count_rule_wins (docs/lld_merchant_rules_tab_claude.md) ---
+
+
+def add_described_txn(session, account_id, description, clean=None):
+    global _hash_counter
+    _hash_counter += 1
+    session.add(
+        Transaction(
+            account_id=account_id,
+            date=date(2026, 7, 1),
+            description=description,
+            amount_cents=-1000,
+            clean_description=clean,
+            source_row_hash=f"hash-{_hash_counter}",
+        )
+    )
+    session.commit()
+
+
+def test_count_rule_wins_scoped_rule_beats_overlapping_global_rule_on_its_own_account():
+    """A naive 'every matching pattern gets +1' counter gives global 3; a
+    case-sensitive matcher gives scoped 0."""
+    session = make_session()
+    card_a = make_account(session, name="Card A")
+    card_b = make_account(session, name="Card B")
+    global_rule = MerchantRule(match_pattern="AMAZON", clean_name="Amazon")
+    scoped_rule = MerchantRule(match_pattern="amazon mktp", clean_name="Amazon Marketplace", account_id=card_a.id)
+    session.add_all([global_rule, scoped_rule])
+    session.commit()
+    add_described_txn(session, card_a.id, "AMAZON MKTP US*1A2B")
+    add_described_txn(session, card_b.id, "AMAZON MKTP US*3C4D")
+    add_described_txn(session, card_a.id, "Amazon.com*5E6F")
+
+    assert count_rule_wins(session) == {global_rule.id: 2, scoped_rule.id: 1}
+
+
+def test_count_rule_wins_lower_id_wins_within_a_tier_even_when_inserted_later():
+    session = make_session()
+    account = make_account(session)
+    session.add(MerchantRule(id=20, match_pattern="STARBUCKS", clean_name="Starbucks"))
+    session.commit()
+    session.add(MerchantRule(id=10, match_pattern="STAR", clean_name="Star"))
+    session.commit()
+    add_described_txn(session, account.id, "STARBUCKS #1234")
+
+    assert count_rule_wins(session) == {10: 1, 20: 0}
+
+
+def test_find_matching_rule_ignores_caller_order_within_a_tier():
+    """count_rule_wins inherits precedence from find_matching_rule; this pins it
+    against list order, which a DB-backed test can't (SQLite returns id order)."""
+    high = MerchantRule(id=20, match_pattern="STARBUCKS", clean_name="Starbucks")
+    low = MerchantRule(id=10, match_pattern="STAR", clean_name="Star")
+
+    assert find_matching_rule([high, low], "STARBUCKS #1234", account_id=1) is low
+
+
+def test_count_rule_wins_reports_dead_rules_as_zero_next_to_an_exact_winner():
+    session = make_session()
+    account = make_account(session)
+    dead = MerchantRule(match_pattern="NETFLIX", clean_name="Netflix")
+    live = MerchantRule(match_pattern="SPOTIFY", clean_name="Spotify")
+    session.add_all([dead, live])
+    session.commit()
+    add_described_txn(session, account.id, "SPOTIFY USA")
+    add_described_txn(session, account.id, "")
+    add_described_txn(session, account.id, "HULU")
+
+    assert count_rule_wins(session) == {dead.id: 0, live.id: 1}
+
+
+def test_count_rule_wins_counts_rows_that_are_already_named():
+    """Kills both 'skip named rows' (gives 1) and 'only named rows' (gives 1)."""
+    session = make_session()
+    account = make_account(session)
+    rule = MerchantRule(match_pattern="KURA", clean_name="Kura Sushi")
+    session.add(rule)
+    session.commit()
+    add_described_txn(session, account.id, "SQ *KURA 1", clean="Kura Sushi")
+    add_described_txn(session, account.id, "SQ *KURA 2")
+    add_described_txn(session, account.id, "OTHER PLACE")
+
+    assert count_rule_wins(session) == {rule.id: 2}
+
+
+def test_count_rule_wins_with_no_rules_is_empty():
+    session = make_session()
+    account = make_account(session)
+    add_described_txn(session, account.id, "ANYTHING")
+
+    assert count_rule_wins(session) == {}

@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.categories.apply import apply_merchant_rules
+from app.categories.apply import apply_merchant_rules, count_rule_wins
 from app.categories.candidate import CandidateEvaluation, evaluate_candidate, suggest_match_pattern
 from app.db import get_db
 from app.models import Account, Category, MerchantRule, Transaction
 from app.schemas import (
     MerchantRuleCreate,
+    MerchantRuleListItem,
     MerchantRuleOut,
     MerchantRulePreviewOut,
     MerchantRulePreviewRequest,
@@ -52,9 +53,14 @@ def sample_rows(db: Session, evaluation: CandidateEvaluation) -> list[SampleRowO
     ]
 
 
-@router.get("/merchant-rules", response_model=list[MerchantRuleOut])
+@router.get("/merchant-rules", response_model=list[MerchantRuleListItem])
 def list_merchant_rules(db: Session = Depends(get_db)):
-    return db.execute(select(MerchantRule).order_by(MerchantRule.id)).scalars().all()
+    counts = count_rule_wins(db)
+    rules = db.execute(select(MerchantRule).order_by(MerchantRule.id)).scalars().all()
+    return [
+        MerchantRuleListItem(**MerchantRuleOut.model_validate(rule).model_dump(), match_count=counts[rule.id])
+        for rule in rules
+    ]
 
 
 @router.post("/merchant-rules/preview", response_model=MerchantRulePreviewOut)

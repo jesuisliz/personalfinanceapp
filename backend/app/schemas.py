@@ -89,6 +89,12 @@ class MerchantRuleOut(BaseModel):
     account_id: int | None
 
 
+class MerchantRuleListItem(MerchantRuleOut):
+    """A rule as the Rules tab lists it: how many transactions it wins today."""
+
+    match_count: int
+
+
 class MerchantRuleCreate(BaseModel):
     """A new rule. With source_transaction_id it is remembered from a category edit:
     its scope comes from the source row (this_account_only), never from account_id."""

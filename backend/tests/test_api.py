@@ -799,6 +799,42 @@ def test_delete_rule_keeps_rows_it_filled():
     assert client.delete(f"/merchant-rules/{rule_id}").status_code == 404
 
 
+def test_list_rules_reports_match_counts_and_delete_unshadows_the_next_rule():
+    """Rows 1-3 all contain "KURA"; only rows 1 and 2 contain the longer pattern,
+    which is shadowed by the lower-id global rule until that rule is deleted."""
+    client, Session = make_rule_client()
+    broad = add_existing_rule(Session, "KURA", DINING)
+    narrow = add_existing_rule(Session, "SQ *KURA REVOLVING SUSHI", TRAVEL)
+
+    before = client.get("/merchant-rules")
+
+    assert before.status_code == 200
+    assert before.json() == [
+        {"id": broad, "match_pattern": "KURA", "clean_name": "Existing", "category_id": DINING,
+         "account_id": None, "match_count": 3},
+        {"id": narrow, "match_pattern": "SQ *KURA REVOLVING SUSHI", "clean_name": "Existing",
+         "category_id": TRAVEL, "account_id": None, "match_count": 0},
+    ]
+
+    rows_before = [(r.clean_description, r.category_id) for r in (get_row(Session, i) for i in (1, 2, 3))]
+    assert client.delete(f"/merchant-rules/{broad}").status_code == 204
+
+    after = client.get("/merchant-rules").json()
+    assert [(r["id"], r["match_count"]) for r in after] == [(narrow, 2)]
+    rows_after = [(r.clean_description, r.category_id) for r in (get_row(Session, i) for i in (1, 2, 3))]
+    assert rows_after == rows_before
+    assert client.delete(f"/merchant-rules/{broad}").status_code == 404
+
+
+def test_list_rules_with_no_rules_is_empty_list():
+    client, _ = make_rule_client()
+
+    resp = client.get("/merchant-rules")
+
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
 def add_row(Session, *args, **kwargs):
     with Session() as session:
         session.add(make_row(*args, **kwargs))

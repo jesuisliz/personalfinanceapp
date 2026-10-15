@@ -107,6 +107,24 @@ def find_matching_rule(rules, description: str, account_id: int) -> MerchantRule
     return None
 
 
+def count_rule_wins(session: Session) -> dict[int, int]:
+    """How many transactions each rule wins today, keyed by rule id.
+
+    A rule wins a transaction when find_matching_rule picks it for that row's
+    description and account, whether or not the row is already named - so this
+    measures coverage (dead or shadowed rules show 0), not what applying the
+    rules would change. Every rule is present.
+    """
+    rules = session.execute(select(MerchantRule)).scalars().all()
+    counts = {rule.id: 0 for rule in rules}
+    rows = session.execute(select(Transaction.description, Transaction.account_id)).all()
+    for description, account_id in rows:
+        rule = find_matching_rule(rules, description, account_id)
+        if rule is not None:
+            counts[rule.id] += 1
+    return counts
+
+
 def apply_all_rules(session: Session) -> None:
     """Apply merchant rules, then category rules - the one order used everywhere.
 
