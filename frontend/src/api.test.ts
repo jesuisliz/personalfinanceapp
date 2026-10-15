@@ -156,6 +156,12 @@ describe("previewRule", () => {
 
     await expect(previewRule(request)).rejects.toThrow("This transaction's category changed since the rule was suggested");
   });
+
+  it("rejects a FastAPI validation error (422, array detail) with the fallback message", async () => {
+    stubFetchError(422, { detail: [{ loc: ["body", "match_pattern"], msg: "blank" }] });
+
+    await expect(previewRule(request)).rejects.toThrow("Rule preview failed");
+  });
 });
 
 describe("createRuleFromEdit", () => {
@@ -186,6 +192,12 @@ describe("createRuleFromEdit", () => {
     stubFetch({ id: 77, match_pattern: "DD *DOORDASH" });
 
     expect(await createRuleFromEdit(request)).toEqual({ id: 77, match_pattern: "DD *DOORDASH" });
+  });
+
+  it("rejects a 400 refusal with its message", async () => {
+    stubFetchError(400, { detail: { code: "pattern_not_matching_source", message: "The pattern doesn't match this transaction" } });
+
+    await expect(createRuleFromEdit(request)).rejects.toThrow("The pattern doesn't match this transaction");
   });
 
   it("rejects with the refusal message, not [object Object]", async () => {

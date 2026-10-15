@@ -51,6 +51,11 @@ export function displayName(state: NonNullable<RememberRuleState>): string {
   return state.name ?? state.source.clean_description ?? state.pattern;
 }
 
+/** A sample row already in another category; an uncategorized row is one the rule would fill, not a mismatch. */
+export function isMismatch(rowCategory: string | null, categoryName: string): boolean {
+  return rowCategory !== null && rowCategory !== categoryName;
+}
+
 /** True only when the latest preview says the server would accept this exact rule. */
 export function canSave(state: RememberRuleState): boolean {
   if (!state || state.saving || state.savedRuleId !== null || !state.preview) return false;
@@ -90,6 +95,12 @@ export function saveRequest(state: NonNullable<RememberRuleState>): RuleFromEdit
 }
 
 /**
+ * Pattern and scope edits drop the preview and any error, and reset latestSeq to 0 (no request
+ * uses it), so a response still in flight for the old inputs can't land.
+ */
+const invalidated = { preview: null, error: null, latestSeq: 0 };
+
+/**
  * Panel transitions for remembering a category edit as a rule. Preview results apply only to
  * the latest request (seq), and save results only while a save is in flight, so a late response
  * can't land in a panel that was replaced.
@@ -117,11 +128,11 @@ export function rememberRuleReducer(state: RememberRuleState, action: RememberRu
       if (action.seq !== state.latestSeq) return state;
       return { ...state, preview: null, error: action.message };
     case "patternEdited":
-      return { ...state, pattern: action.pattern, patternTouched: true, preview: null };
+      return { ...state, pattern: action.pattern, patternTouched: true, ...invalidated };
     case "nameEdited":
       return { ...state, name: action.name };
     case "scopeToggled":
-      return { ...state, thisAccountOnly: !state.thisAccountOnly, preview: null };
+      return { ...state, thisAccountOnly: !state.thisAccountOnly, ...invalidated };
     case "saveStarted":
       return { ...state, saving: true, error: null };
     case "saveSucceeded":

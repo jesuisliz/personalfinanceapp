@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RulePreview } from "./api";
 import {
-  canSave, displayName, previewRequestBody, rememberRuleReducer, saveRequest,
+  canSave, displayName, isMismatch, previewRequestBody, rememberRuleReducer, saveRequest,
   type RememberRuleAction, type RememberRuleState, type RuleSource,
 } from "./rememberRule";
 
@@ -58,6 +58,13 @@ describe("opening and closing", () => {
   });
   it("replaces the panel when the same row gets another category", () => {
     expect(run(ready(), { type: "categoryEdited", txn: doordash, categoryId: TRAVEL })).toEqual(opened(doordash, TRAVEL));
+  });
+  it("replaces the panel when another row gets the same category", () => {
+    expect(run(ready(), { type: "categoryEdited", txn: uber, categoryId: DINING })).toEqual(opened(uber, DINING));
+  });
+  it("starts the replacement clean: no saved id, scope, typed name or error carried over", () => {
+    const dirty: RememberRuleState = { ...ready(), savedRuleId: 77, thisAccountOnly: true, name: "X", error: "e" };
+    expect(run(dirty, { type: "categoryEdited", txn: uber, categoryId: TRAVEL })).toEqual(opened(uber, TRAVEL));
   });
   it("keeps the panel as is when the same category is picked again", () => {
     const state = run(ready(), { type: "patternEdited", pattern: "DOORDASH" });
@@ -131,6 +138,32 @@ describe("previews", () => {
     expect(state?.thisAccountOnly).toBe(true);
     expect(state?.preview).toBeNull();
   });
+  it.each<[string, RememberRuleAction]>([
+    ["clearing the pattern", { type: "patternEdited", pattern: "" }],
+    ["typing a new pattern", { type: "patternEdited", pattern: "DOORDASH" }],
+    ["toggling scope", { type: "scopeToggled" }],
+  ])("ignores a response in flight before %s", (_label, edit) => {
+    const state = run(ready(), { type: "previewRequested", seq: 2 }, edit,
+      { type: "previewReceived", seq: 2, preview: preview(), thisAccountOnly: false });
+    expect(state?.preview).toBeNull();
+  });
+  it("ignores a failure in flight before the pattern was cleared", () => {
+    const state = run(ready(), { type: "previewRequested", seq: 2 }, { type: "patternEdited", pattern: "" },
+      { type: "previewFailed", seq: 2, message: "late" });
+    expect(state?.error).toBeNull();
+  });
+  it.each<[string, RememberRuleAction]>([
+    ["editing the pattern", { type: "patternEdited", pattern: "" }],
+    ["toggling scope", { type: "scopeToggled" }],
+  ])("clears an old error when %s", (_label, edit) => {
+    const failed = run(ready(), { type: "saveStarted" }, { type: "saveFailed", message: "refused" });
+    expect(run(failed, edit)?.error).toBeNull();
+  });
+  it("keeps a typed blank pattern blank when a preview arrives", () => {
+    const state = run(opened(), { type: "patternEdited", pattern: "" }, { type: "previewRequested", seq: 1 },
+      { type: "previewReceived", seq: 1, preview: preview(), thisAccountOnly: false });
+    expect(state?.pattern).toBe("");
+  });
 });
 
 describe("display name", () => {
@@ -146,12 +179,29 @@ describe("display name", () => {
   });
 });
 
+describe("sample highlighting", () => {
+  it("marks a row in another category", () => {
+    expect(isMismatch("Travel", "Dining & Drinks")).toBe(true);
+  });
+  it("does not mark a row in the rule's category", () => {
+    expect(isMismatch("Dining & Drinks", "Dining & Drinks")).toBe(false);
+  });
+  it("does not mark an uncategorized row - the rule would fill it", () => {
+    expect(isMismatch(null, "Dining & Drinks")).toBe(false);
+  });
+});
+
 describe("canSave", () => {
   it("is true when every condition holds", () => {
     expect(canSave(ready())).toBe(true);
   });
   it("is true when the typed pattern only adds surrounding spaces the server strips", () => {
     expect(canSave({ ...ready(), pattern: " DD *DOORDASH ", patternTouched: true })).toBe(true);
+  });
+  it("is true for an account-only rule previewed with that scope", () => {
+    const state = run(ready(), { type: "scopeToggled" }, { type: "previewRequested", seq: 2 },
+      { type: "previewReceived", seq: 2, preview: preview(), thisAccountOnly: true });
+    expect(canSave(state)).toBe(true);
   });
   it.each<[string, (s: NonNullable<RememberRuleState>) => RememberRuleState]>([
     ["no panel", () => null],
@@ -171,6 +221,9 @@ describe("canSave", () => {
 });
 
 describe("request bodies", () => {
+  it("asks the server to suggest when the panel first opens", () => {
+    expect(previewRequestBody(opened()!)).toEqual({ source_transaction_id: 971, match_pattern: null, category_id: DINING, this_account_only: false });
+  });
   it("asks the server to suggest while the pattern is untouched", () => {
     expect(previewRequestBody(ready())).toEqual({ source_transaction_id: 971, match_pattern: null, category_id: DINING, this_account_only: false });
   });
@@ -188,6 +241,11 @@ describe("request bodies", () => {
 });
 
 describe("saving", () => {
+  it("clears the previous refusal when saving again", () => {
+    const state = run(ready(), { type: "saveStarted" }, { type: "saveFailed", message: "refused" }, { type: "saveStarted" });
+    expect(state?.saving).toBe(true);
+    expect(state?.error).toBeNull();
+  });
   it("marks the panel saving, then saved with the rule id", () => {
     const saving = run(ready(), { type: "saveStarted" });
     expect(saving?.saving).toBe(true);

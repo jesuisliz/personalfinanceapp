@@ -1,6 +1,6 @@
 import type { RulePreview } from "./api";
 import { IconCheck, IconX } from "./icons";
-import { canSave, displayName, type RememberRuleState } from "./rememberRule";
+import { canSave, displayName, isMismatch, type RememberRuleState } from "./rememberRule";
 import { Card, PrimaryButton, SecondaryButton, inputClass } from "./ui";
 
 type PanelState = NonNullable<RememberRuleState>;
@@ -60,7 +60,7 @@ function Sample({ preview, categoryName }: { preview: RulePreview; categoryName:
       <div className="text-ink-muted">Examples:</div>
       <ul>
         {preview.sample.map((row) => (
-          <li key={row.id} className={row.category_name !== categoryName ? "text-critical" : "text-ink-secondary"}>
+          <li key={row.id} className={isMismatch(row.category_name, categoryName) ? "text-critical" : "text-ink-secondary"}>
             {row.date} &middot; {row.description} &middot; {row.category_name ?? "Uncategorized"}
           </li>
         ))}
