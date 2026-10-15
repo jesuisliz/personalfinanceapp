@@ -332,17 +332,32 @@ def test_count_rule_wins_reports_dead_rules_as_zero_next_to_an_exact_winner():
 
 
 def test_count_rule_wins_counts_rows_that_are_already_named():
-    """Kills both 'skip named rows' (gives 1) and 'only named rows' (gives 1)."""
+    """Kills 'skip named rows' and 'only named rows' (each gives 1). The named row
+    carries a different name than the rule's (a hand rename), so 'count only rows
+    this rule would or did name' also gives 1."""
     session = make_session()
     account = make_account(session)
     rule = MerchantRule(match_pattern="KURA", clean_name="Kura Sushi")
     session.add(rule)
     session.commit()
-    add_described_txn(session, account.id, "SQ *KURA 1", clean="Kura Sushi")
+    add_described_txn(session, account.id, "SQ *KURA 1", clean="My Sushi Place")
     add_described_txn(session, account.id, "SQ *KURA 2")
     add_described_txn(session, account.id, "OTHER PLACE")
 
     assert count_rule_wins(session) == {rule.id: 2}
+
+
+def test_count_rule_wins_counts_every_row_of_a_repeated_description():
+    """Monthly subscriptions repeat the same description on one account; each row counts."""
+    session = make_session()
+    account = make_account(session)
+    rule = MerchantRule(match_pattern="NETFLIX", clean_name="Netflix")
+    session.add(rule)
+    session.commit()
+    for _ in range(3):
+        add_described_txn(session, account.id, "NETFLIX.COM")
+
+    assert count_rule_wins(session) == {rule.id: 3}
 
 
 def test_count_rule_wins_with_no_rules_is_empty():

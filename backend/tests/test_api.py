@@ -805,6 +805,7 @@ def test_list_rules_reports_match_counts_and_delete_unshadows_the_next_rule():
     client, Session = make_rule_client()
     broad = add_existing_rule(Session, "KURA", DINING)
     narrow = add_existing_rule(Session, "SQ *KURA REVOLVING SUSHI", TRAVEL)
+    rows_untouched = [(r.clean_description, r.category_id) for r in (get_row(Session, i) for i in (1, 2, 3))]
 
     before = client.get("/merchant-rules")
 
@@ -817,6 +818,7 @@ def test_list_rules_reports_match_counts_and_delete_unshadows_the_next_rule():
     ]
 
     rows_before = [(r.clean_description, r.category_id) for r in (get_row(Session, i) for i in (1, 2, 3))]
+    assert rows_before == rows_untouched, "GET must not apply rules"
     assert client.delete(f"/merchant-rules/{broad}").status_code == 204
 
     after = client.get("/merchant-rules").json()
