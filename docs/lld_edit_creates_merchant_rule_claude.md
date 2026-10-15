@@ -2,7 +2,9 @@
 
 Status: v3 approved. Phase 1 (backend) built and live-verified 2026-10-15
 (commits c7a6164, dcfb832, 3ca2280, 7a63e3c, i.e. 7b3e23f..7a63e3c; see section 11).
-Close-out review done; its fix pass is OPEN (11.4). Phase 2 (frontend panel) not started.
+Close-out review and its fix pass done (11.4, 11.5; commit 78ff014). Phase 2
+(frontend panel) built and live-verified 2026-10-15 (commits 1466f1a, 17a019f,
+b442518, a5ff7f1; see section 12). Open: three questions for Liz (12.6).
 
 ## 1. Context
 
@@ -509,3 +511,148 @@ fallback, blank not refused, explicit flush) was run on a scratch copy and
 killed. Deferred: preview doesn't check the category exists (Opus 7; read-
 only, and create refuses). Real data: 0 of 706 distinct descriptions change
 suggestion. Suite: 315 passed (287 before the pass).
+
+
+## 12. Phase 2 implementation notes (2026-10-15)
+
+Plan: `docs/plan_edit_creates_merchant_rule_phase2_claude.md` (commit 61b0c90).
+Commits: 1466f1a (API client), 17a019f (reducer), b442518 (panel + App
+wiring), a5ff7f1 (review fixes). vitest 32 -> 100; backend unchanged, 315.
+
+### 12.1 Decisions the plan added to section 5
+
+1. Two actions beyond the section 5 list: `previewFailed(seq, message)` (a
+   preview 409/422/network error needs a state, or the panel says
+   "Checking..." forever) and `saveStarted` (disables Save while the create
+   is in flight).
+2. `saveSucceeded` / `saveFailed` apply only while `saving`, so a panel
+   that replaced the saving one isn't stamped "Rule saved" by the old
+   request.
+3. `categoryEdited` with null closes the panel only when it is the panel's
+   own row; an unrelated row set to Uncategorized leaves a valid panel
+   open. **Liz approved this reading of "null closes" 2026-10-15.**
+4. `categoryEdited` for the same row and same category keeps the state
+   (`CategoryDropdown` fires `onChange` on a re-pick; resetting would
+   discard a typed pattern).
+5. `name: string | null`: null means not edited; `displayName` derives the
+   default (`clean_description`, else the current pattern).
+6. Preview staleness is guarded by (a) seq - a response applies only when
+   `seq === latestSeq`; the counter lives in App (`useRef`), is never
+   reset, and a new panel starts at `latestSeq: 0`; (b) `canSave` compares
+   `preview.match_pattern` with the trimmed pattern; (c) the state records
+   the scope the preview was computed for. **Amended by the review (12.4):**
+   pattern and scope edits also reset `latestSeq` to 0 and clear `error`.
+7. Previews are debounced 300 ms and keyed on the request body. While the
+   pattern is untouched the body sends `match_pattern: null`, so prefilling
+   from a response doesn't trigger a second request. A touched blank
+   pattern sends nothing.
+8. `refusalMessage(body, fallback)` reads a string `detail`, else
+   `detail.message`, else the fallback (FastAPI's 422 detail is an array).
+   The existing `asJson` would have shown `{code, message}` as
+   `[object Object]`; it is left alone and used only by older calls.
+9. The saved view shows the rule id and that undo is
+   `DELETE /merchant-rules/{id}`, since no UI lists rules.
+
+Also: no warning color token exists, so blocking statuses (pattern not in
+description, conflict, mismatch) and mismatched sample rows use
+`text-critical`.
+
+### 12.2 Mutation checks while building
+
+- Reducer (Task 2): the plan's 12 named mutants all killed after one test
+  fix - "does not overwrite a pattern the user typed" typed exactly what the
+  server echoed, so an always-overwrite mutant passed. It now types
+  `"DOORDASH "` while the server returns the stripped `"DOORDASH"`.
+- Known equivalent: dropping `pattern !== ""` from `canSave` (the server
+  never returns an empty `match_pattern`).
+
+### 12.3 Live walkthrough (server on port 8000 against a DB copy)
+
+Setup: Vite already running on 5173 was reused. The backend read a
+scratchpad copy, proven by a marker note on txn 1229 that came back through
+the API (a fresh copy is identical to the real DB, so a rule count proves
+nothing). Oracle: rule precedence re-implemented from sections 3 and 4.2 in
+plain Python over raw SQLite (`instr(lower(..), lower(..)) > 0`), with no
+app imports, computed before the browser was opened. Every check matched it.
+
+| Check | Screen | Oracle |
+|---|---|---|
+| 971 re-pick Dining & Drinks | panel above table after the PATCH 200; pattern `DD *DOORDASH`; 46 / 0; sample 971, 973, 975, 978, 989; Save enabled; 1 preview request (`match_pattern: null`) | 46 / 0 / 0, same sample |
+| Scope toggled | "Checking...", Save disabled, then 46; request had `this_account_only: true` | 46 (every DoorDash row is on account 1) |
+| `GRUBHUB` | "doesn't appear" warning, Save disabled; typing 7 letters sent 1 request | - |
+| Pattern cleared | "Enter a pattern", Save disabled, 0 requests | - |
+| 81 replaces 971's panel | new panel, suggestion `UBER   *EATS`, 8 / 0 | 8 / 0 / 0 |
+| 81 `UBER` | 30 mismatches; 5 red rows; Save disabled | 30, sample 1022, 1028, 1027, 31, 94 |
+| 813 | conflict naming rule 61, "for this account only", no "Only for" hint | conflict 61 (account-scoped) |
+| 1134 (extra) | conflict naming global rule 66 **with** the hint; scoped: no conflict, 0 / 0, Save enabled | conflict 66; scoped 0 / 0, sample 1134, 1126, 1120, 1119, 1112 |
+| Filter regression: 971 -> Travel under a Dining filter | row left the table, panel stayed and previewed: 46 mismatches | 46 (45 unnamed rows + row 1, already named DoorDash) |
+| Failed PATCH (backend stopped) | no panel, no preview request | - |
+| Save 971 as "DoorDash" | "Rule saved (#77)", table reloaded | raw SQL: the 46 changed names are exactly the oracle's 46 ids; 0 category changes; rules 76 -> 77 |
+| `DELETE /merchant-rules/77` | 204, then 404; 47 rows keep "DoorDash" | - |
+
+Teardown: tab closed, backend stopped, port 8000 free, copy deleted; real
+DB 76 rules, 1188 rows, max rule id 76, one row named DoorDash.
+
+Seen, not changed: the sample list collapses runs of spaces (HTML; the
+table does the same, and the pattern input keeps them). The first click on
+a category dropdown right after typing in the search box doesn't open it -
+existing `CategoryDropdown` behavior. A rejected PATCH is an unhandled
+promise in the console (existing; this phase dispatches nothing for it).
+
+### 12.4 Close-out reviews
+
+Fresh Opus subagent and Codex (`codex exec`, high effort), each in its own
+detached worktree, against 61b0c90..b442518. Both ran the suites (vitest 83,
+backend 315, lint clean, build OK - Codex needed worktree workarounds, see
+`C:\Projects\DEV_ENVIRONMENT_NOTES.md`). Neither found a path where the
+client enables Save when the server would refuse, or relaxes a refusal.
+
+Fixed (a5ff7f1), each verified against the code first:
+
+- **In-flight preview lands after an edit** (Codex Medium; Opus D2 is the
+  same root). `patternEdited` / `scopeToggled` cleared `preview` but not
+  `latestSeq` or `error`. Clearing the pattern sends no new request, so the
+  old response (or failure, or a save refusal) stayed on screen instead of
+  "Enter a pattern". Now both reset `latestSeq` to 0 - no request uses 0 -
+  and clear `error`. Re-run live with previews delayed 1.5 s in the browser:
+  a `DOORDASH` request in flight when the pattern was cleared landed 1.7 s
+  later with 200 and was ignored; the normal path still showed 46 / 0.
+- **Uncategorized sample rows shown red** (Opus D1). Section 4.2 counts a
+  mismatch only when the row has a category that differs; a null-category
+  row is one the rule would fill. `isMismatch` moved into `rememberRule.ts`
+  so it is tested.
+- **Test gaps** (both). Surviving mutants, each re-run before acting:
+  first request of a new panel null (M1); keep-as-is ignoring the row (M2);
+  replacement carrying `savedRuleId` (M3) or scope/name/error (M4);
+  `saveStarted` keeping the error (M5); prefill keyed on empty instead of
+  untouched (M9); `canSave` refusing every account-scoped rule (M16);
+  API rejecting only 409 (Codex). Tests added for each, plus the fix above.
+  Final run: 25 mutants killed (these 8, the fix's own 5, the plan's 12),
+  plus 2 for `isMismatch`; 1 known equivalent.
+
+### 12.5 Deferred minors
+
+- Panel status says "Would name N transactions"; section 5 says "N blank
+  transactions". Named rows aren't counted (see 12.6 q3).
+- If categories fail to load, the `Category {id}` fallback name would mark
+  every sample row red.
+- The panel's source snapshot doesn't follow a later rename of the same
+  row, so the default name can go stale.
+- `asJsonOrRefusal` parses JSON before checking `ok` (same as `asJson`).
+- Preview doesn't check the category exists (from 11.5; create does).
+
+### 12.6 Open questions for Liz
+
+1. **Stale previews (Opus D3, Low).** A preview only re-runs when the
+   pattern or scope changes. After a transient network error the only retry
+   is editing the pattern; after other actions change the data (Detect
+   Transfers, an upload, a rename) the counts shown can be stale. The server
+   still refuses an unsafe save with its message. Options: re-preview after
+   `saveFailed` and on each `reload()`, or leave it.
+2. **Lost rule id (Opus D4, Low; the trade-off in decision 2).** A save
+   still in flight when another row is edited creates the rule and reloads
+   the table, but the id is discarded, and there is no rules UI to find it.
+   Options: show the id in the status line, disable category dropdowns
+   while saving, or leave it.
+3. **Wording.** Change "Would name N transactions" to "Would name N unnamed
+   transactions" to match section 5?
