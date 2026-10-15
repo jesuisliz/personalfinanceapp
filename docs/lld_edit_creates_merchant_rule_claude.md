@@ -1,7 +1,8 @@
 # LLD: Remember a manual category edit as a merchant rule
 
-Status: DRAFT v3 for approval (2026-10-15), revised after Opus and Codex
-spec reviews (see section 10). No code written yet.
+Status: v3 approved. Phase 1 (backend) built and live-verified 2026-10-15
+(commits c7a6164, dcfb832, 3ca2280, 7a63e3c, i.e. 7b3e23f..7a63e3c; see section 11).
+Close-out review done; its fix pass is OPEN (11.4). Phase 2 (frontend panel) not started.
 
 ## 1. Context
 
@@ -63,6 +64,9 @@ do not record that it came from an edit; nothing would read that field.
 
 ### 4.1 `app/categories/apply.py`
 
+(As built, `suggest_match_pattern`, `normalize_rule_text` and
+`evaluate_candidate` live in `app/categories/candidate.py`; see 11.1.)
+
 - **`find_matching_rule(rules, description, account_id) -> MerchantRule | None`**
   - the precedence logic extracted from `apply_merchant_rules`, which is
   refactored to call it. Account-scoped rules for `account_id` first, then
@@ -102,7 +106,8 @@ One server function does all the checking, used by both preview and create:
 
 `evaluate_candidate(session, source_txn, match_pattern, category_id, this_account_only)`
 
-1. **Source category check.** `source_txn.category_id` must equal
+1. **Source category check** (as built: in the router's `load_source_row`,
+   before `evaluate_candidate` is called; see 11.1). `source_txn.category_id` must equal
    `category_id`, else refuse with code `source_category_changed` (the user
    changed the row again after the panel opened, e.g. back to
    Uncategorized; saving would immediately recategorize it).
@@ -171,7 +176,8 @@ filled; they stay editable in the table.
 ### 4.5 Startup order (`main.py`)
 
 Swap to merchant rules first, then category rules, matching the import
-pipeline (`pipeline.py:181-186`). Live effect today: none (0 uncategorized
+pipeline (`pipeline.py:181-186`). As built, both paths call one shared
+`apply_all_rules(session)` (see 11.1). Live effect today: none (0 uncategorized
 rows). It matters once new rules exist, because a row filled at startup
 should get the same category as one filled at import.
 
@@ -299,3 +305,120 @@ Each item names the wrong implementation it must catch.
   shared normalization, exact response assertions, zero-mismatch `canSave`
   cases, panel transitions moved into a tested reducer, startup order fix
   (4.5).
+
+## 11. Phase 1 implementation notes (2026-10-15)
+
+### 11.1 Decisions made in the Phase 1 plan
+
+1. **Module split:** `find_matching_rule` and `apply_all_rules` are in
+   `apply.py` (they define how rules apply); `normalize_rule_text`,
+   `suggest_match_pattern` and `evaluate_candidate` are in the new
+   `candidate.py` (they only exist for this feature).
+2. **`apply_all_rules(session)`** (merchant, then category) is called by
+   both `pipeline.py` and the `main.py` lifespan. The lifespan isn't
+   exercised by tests, so a test on the shared function is the only way to
+   pin the order, and one call site per path stops them drifting again.
+3. **Source lookup and category check are in the router** (`load_source_row`,
+   shared by preview and create) because they are HTTP refusals (404/409).
+   `evaluate_candidate` takes an already-validated row.
+
+### 11.2 Rulings made while building (where plan or spec was silent or wrong)
+
+- Plan's Task 3 expected an account-scoped candidate to name 2 fixture rows.
+  By this spec's precedence an account-scoped candidate also beats the older
+  global `KURA OLD` rule, so it names 3 (1 categorized, 2 mismatches). Tests
+  follow the spec.
+- Create with `source_transaction_id` but no `category_id` is a 422: a rule
+  remembered from a category edit is meaningless without the category.
+- With a source, the source refusals run first and the old category/account
+  existence 400s are skipped. **The stated reason was wrong** (both
+  reviewers): SQLite foreign keys are OFF in this app, so the source's
+  category equalling the request's does not prove the category exists. To be
+  fixed in the 11.4 fix pass by keeping explicit lookups.
+- A missing source returns `detail: {code: "source_not_found", message}`,
+  matching the other refusals.
+- Added a test pinning `conflict` before `category_mismatch`.
+
+### 11.3 Results
+
+- Tests: 233 -> 287 backend tests passing. Mutation checks run: old startup
+  order, candidate sorted first in its tier, mismatch counted only over
+  unnamed rows, conflict/mismatch order swapped - each fails at least one
+  test.
+- Suggestion over all 706 real distinct descriptions: 0 fail to match their
+  own row; the only result under 4 characters is the whole description
+  `Cmp`.
+- Live, server on port 8001 against a DB copy (76 rules, 1188 rows):
+  - Startup with the new rule order changed 0 rows compared with the real
+    DB.
+  - Preview for txn 971 `DD *DOORDASH` -> Dining & Drinks (suggested
+    pattern, global) against a raw-SQL `instr` oracle: name 46, categorize 0,
+    mismatch 0, sample ids [971, 973, 975, 978, 989] - all identical.
+    Categorize is 0 because the live data has 0 uncategorized rows (proven
+    by fixture, as section 8 planned).
+  - Refusals: `UBER` from txn 81 -> 409 `category_mismatch`, count 30, sample
+    identical to the oracle; `PAYMENT` from txn 813 -> 409 `conflict` naming
+    rule 61 (account-scoped `PAYMENT - THANK YOU`); non-matching -> 400;
+    blank -> 422; changed category -> 409 `source_category_changed`. Rule
+    count unchanged after all refusals.
+  - Save `DD *DOORDASH` -> exactly the 46 oracle rows changed, all named
+    `DoorDash`, categories unchanged; delete -> 204, rows unchanged, second
+    delete 404.
+  - Teardown: server stopped, port free, copy deleted; real DB still 76
+    rules, 1188 rows.
+
+### 11.4 Close-out review (2026-10-15) - fix pass OPEN
+
+Opus subagent ran the suite (287 passed; base 7b3e23f: 233) and mutation-
+tested on `git archive` copies. Codex reviewed but could not run tests (its
+sandbox had no writable temp dir). No code-correctness bug was found in the
+counts, precedence or refusal order; findings are untested behaviors plus two
+real code gaps. Next session: one fix pass, each fix a test that fails first
+(or a mutant it kills), then full suite, then commit + push.
+
+**Code fixes (verified against the code):**
+
+1. Suggested pattern isn't normalized (Codex 1, Opus 10): preview with
+   `match_pattern: null` uses `suggest_match_pattern` raw, so e.g.
+   `AplPay  FOO` previews `" FOO"` but create stores `"FOO"`. Fix: run the
+   suggestion through `normalize_rule_text` in the preview route. 0 real
+   descriptions affected today.
+2. Existence checks rely on FKs that are off (Codex 2, Opus 13): restore
+   explicit Category (and, when scoped, Account) lookups on the source path.
+
+**Missing tests to add:**
+
+3. No-source create keeps `account_id` (mutant `account_id = None` survives)
+   and `account_id: 999` -> 400 (Opus 1).
+4. `would_categorize_count` only over named rows: add a candidate-won row
+   with a name set and category NULL (Opus 2).
+5. Conflict against an existing account-scoped rule on the source's account,
+   for global and scoped candidates; also pins "unsaved candidate last in the
+   account tier" (Opus 3, Codex 5).
+6. A rule scoped to another account never wins (Codex 4).
+7. 400 before `category_mismatch`: source 1 with `KURA TRAVEL` while a
+   Travel row `SQ *KURA TRAVEL` exists (Opus 4).
+8. Preview endpoint with `this_account_only=true` and with a nonzero mismatch
+   (Opus 5, Codex 8).
+9. Source category set back to NULL -> 409 `source_category_changed` (Opus 6).
+10. Lifespan startup order: monkeypatch `app.main.init_db`/`get_session` to
+    an in-memory session and run `lifespan(app)` (Opus 7, Codex 10); reword
+    11.1 #2 ("only way" overstated).
+11. Blank and padded pattern/name on create WITH a source (Opus 11, Codex 7).
+12. Source on a non-1 account so scope isn't pinned to a constant (Codex 3).
+13. Read-only: catch `commit`/`flush` in `evaluate_candidate` (Codex 6).
+14. Error contract: assert `detail.message` on every refusal and 409 on
+    conflict-before-mismatch; delete test checks row 3 too (Codex 9, 11).
+15. Docs: section 3 / 4.5 cite pre-change line numbers (Opus 13).
+
+**Deferred minors (not planned):** preview request ignores extra
+`account_id` instead of 422 (Opus 8); `this_account_only` without a source is
+silently ignored (Opus 9); scope filter in `evaluate_candidate` is redundant
+with precedence (Opus 12, equivalent mutant); tab-only text and
+`matches_source` case-insensitivity have no dedicated test; sample tie-break
+by date vs id where fixture ids track dates (Codex table).
+
+**Question for Liz (Codex ruling verdict 3):** create-with-source requires a
+`category_id` (422 otherwise). Codex calls this a product decision since it
+blocks a name-only rule remembered from an edit. The panel only opens after a
+category edit, so the executor's view is keep the 422; needs Liz's call.
